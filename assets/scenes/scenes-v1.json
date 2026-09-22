@@ -1,0 +1,138 @@
+{
+  "schema": "SceneManifestV1",
+  "version": 1,
+  "scenes": [
+    {
+      "id": "ink-tide",
+      "name": "Ink Tide",
+      "version": 1,
+      "shader": "assets/shaders/InkTide.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "prism-atrium",
+      "name": "Prism Atrium",
+      "version": 1,
+      "shader": "assets/shaders/PrismAtrium.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "chrome-flock",
+      "name": "Chrome Flock",
+      "version": 1,
+      "shader": "assets/shaders/ChromeFlock.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "signal-lab",
+      "name": "Signal Lab",
+      "version": 1,
+      "shader": "assets/shaders/SignalLab.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "neon-rift",
+      "name": "Neon Rift",
+      "version": 1,
+      "shader": "assets/shaders/NeonRift.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "media-alchemy",
+      "name": "Media Alchemy",
+      "version": 1,
+      "shader": "assets/shaders/MediaAlchemy.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "reaction-bloom",
+      "name": "Reaction Bloom",
+      "version": 1,
+      "shader": "assets/shaders/ReactionBloom.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "harmonic-sand",
+      "name": "Harmonic Sand",
+      "version": 1,
+      "shader": "assets/shaders/HarmonicSand.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "constellation",
+      "name": "Constellation",
+      "version": 1,
+      "shader": "assets/shaders/Constellation.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "fold-temple",
+      "name": "Fold Temple",
+      "version": 1,
+      "shader": "assets/shaders/FoldTemple.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "dream-grove",
+      "name": "Dream Grove",
+      "version": 1,
+      "shader": "assets/shaders/DreamGrove.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "living-point-cloud",
+      "name": "Living Point Cloud",
+      "version": 1,
+      "shader": "assets/shaders/LivingPointCloud.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    }
+  ]
+}

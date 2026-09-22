@@ -1,0 +1,56 @@
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory = $true)][string]$NativeBuildDirectory,
+    [string]$OutputDirectory
+)
+
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+$repository = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$nativeBuild = (Resolve-Path -LiteralPath $NativeBuildDirectory).Path
+$nativeBin = Join-Path $nativeBuild 'bin\Release'
+$engine = Join-Path $nativeBin 'PrismForge.Engine.exe'
+$launcher = Join-Path $nativeBin 'PrismForge.Launcher.exe'
+$assets = Join-Path $nativeBin 'assets'
+foreach ($item in @($engine, $launcher, $assets)) {
+    if (-not (Test-Path -LiteralPath $item)) {
+        throw "Release build item is missing: $item"
+    }
+}
+$frontend = Join-Path $repository 'control\ui\dist\index.html'
+if (-not (Test-Path -LiteralPath $frontend -PathType Leaf)) {
+    throw 'Control frontend is not built. Run control\build.ps1 first.'
+}
+
+if (-not $OutputDirectory) {
+    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $OutputDirectory = Join-Path $repository "dist\PrismForge-alpha-$stamp"
+}
+$destination = [System.IO.Path]::GetFullPath($OutputDirectory)
+if (Test-Path -LiteralPath $destination) {
+    throw "Refusing to overwrite an existing portable package: $destination"
+}
+New-Item -ItemType Directory -Path $destination -Force | Out-Null
+
+$project = Join-Path $repository 'control\PrismForge.Control\PrismForge.Control.csproj'
+dotnet publish $project -c Release -r win-x64 --self-contained false -o $destination
+if ($LASTEXITCODE -ne 0) { throw 'Control publish failed' }
+Copy-Item -LiteralPath $engine -Destination $destination
+Copy-Item -LiteralPath $launcher -Destination $destination
+Copy-Item -LiteralPath $assets -Destination $destination -Recurse
+Copy-Item -LiteralPath (Join-Path $repository 'README.md') -Destination $destination
+Copy-Item -LiteralPath (Join-Path $repository 'docs\STATUS.md') `
+    -Destination (Join-Path $destination 'STATUS.md')
+
+$hashes = Get-ChildItem -LiteralPath $destination -Recurse -File |
+    Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+    Sort-Object FullName |
+    ForEach-Object {
+        $relative = $_.FullName.Substring($destination.Length).TrimStart('\')
+        $digest = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$digest  $relative"
+    }
+$hashes | Set-Content -LiteralPath (Join-Path $destination 'SHA256SUMS.txt') `
+    -Encoding Ascii
+Write-Output "Portable PrismForge alpha: $destination"
+Write-Output 'No PrismBurst files, desktop shortcuts, or installed programs were changed.'
