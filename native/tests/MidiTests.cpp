@@ -114,10 +114,18 @@ int main() {
   interpreter.Reset();
   CHECK(interpreter.Pressed().none());
 
+  LaunchpadOwnershipGate ownership;
+  CHECK(!ownership.Yielded());
+  CHECK(!ownership.Observe(false));
+  CHECK(ownership.Observe(true));
+  CHECK(ownership.Yielded());
+  CHECK(ownership.Observe(false)); // A brief status gap cannot reclaim MIDI.
+
   BoundedQueue<MidiMessage> queue(4);
   MidiBridge bridge(queue);
   CHECK(!bridge.IsOpen()); // Merely constructing never takes the live port.
   CHECK(!bridge.FeedbackEnabled());
+  CHECK(!bridge.YieldedToPrismBurst());
 
   std::cout << "PrismForge MIDI profile tests passed (50 unique bindings, mapped-only LEDs).\n";
   return 0;

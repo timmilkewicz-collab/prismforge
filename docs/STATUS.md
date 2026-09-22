@@ -10,15 +10,19 @@ that Resolume, an audio interface, or the installed live rig works.
 - Fixed 1920×1080 BGRA8 D3D11 output and `PrismForge` Spout sender.
 - Four actual per-deck GPU effects: Bloom, Feedback, Kaleidoscope and Pixelate.
 - Four adaptive internal-resolution/frame-rate tiers.
-- WASAPI loopback and selectable input capture through pinned miniaudio.
+- Asynchronous WASAPI loopback and selectable input capture through pinned
+  miniaudio, using exact endpoint identities instead of device-list positions.
 - 256-sample transient envelopes and 2048-sample/75%-overlap FFT analysis.
 - Beat/bar-quantized cue storage and a 64-slot modulation route model.
 - Atomic `%APPDATA%\PrismForge` autosave, portable `ShowBundleV1` save/load,
-  and restore validation; test/smoke runs can opt out with `--no-persist`.
+  and restore validation. A rejected autosave is preserved under a unique
+  adjacent name before writes resume; if preservation fails, writes stay off
+  for that run. Test/smoke runs can opt out with `--no-persist`.
 - Loopback-only OSC commands/status and queued PrismBurst `/prism/gesture`
   inputs, plus sanitized read-only PrismBurst health telemetry.
 - Opt-in Launchpad S WinMM input and mapped-only LED feedback, with 50 unique
-  bindings, guarded cue saves and conservative PrismBurst/port-contention gates.
+  bindings, guarded cue saves, conservative PrismBurst/port-contention gates,
+  and one-way runtime yield if PrismBurst subsequently appears.
 - Bounded audio/command queues and length-prefixed versioned local IPC.
 - Local React/WebView2 control surface with bundled assets, local-origin
   navigation/message policy and no remote runtime dependency.
@@ -37,8 +41,9 @@ that Resolume, an audio interface, or the installed live rig works.
   survived a control-client disconnect/reconnect.
 - Autosave wrote a validated `ShowBundleV1` file and restored it on restart;
   `--no-persist` did not change its timestamp.
-- Five Release native tests pass, including always-on Launchpad mapping and
-  LED assertions. A test-owned Control process was force-terminated while the
+- Seven Release native tests pass, including always-on Launchpad mapping,
+  audio handoff, and rejected-autosave assertions. Twenty-three .NET control
+  tests pass. A test-owned Control process was force-terminated while the
   Engine remained live, then a new IPC client read the 1080p sender state.
 
 ## Not yet accepted for live use

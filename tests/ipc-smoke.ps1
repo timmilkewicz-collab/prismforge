@@ -1,5 +1,6 @@
 param(
-    [Parameter(Mandatory = $true)][string]$EnginePath
+    [Parameter(Mandatory = $true)][string]$EnginePath,
+    [switch]$TestAudioInput
 )
 
 $ErrorActionPreference = 'Stop'
@@ -94,6 +95,16 @@ try {
         throw 'Initial Spout state is wrong'
     }
     if ($initial.audio.sources.Count -lt 1) { throw 'No audio sources enumerated' }
+    # WASAPI enumeration is now off the render thread. Give its source-list
+    # event a short window to arrive without making hardware presence a CI gate.
+    $discovered = $initial
+    for ($index = 0; $index -lt 40 -and $discovered.audio.sources.Count -le 1; $index++) {
+        $message = Read-Envelope $client
+        if ($message.type -eq 'StateSnapshot' -and
+            $message.payload.audio.sources.Count -gt 1) {
+            $discovered = $message.payload
+        }
+    }
     Send-Command $client @{ action = 'setScene'; deck = 'A'; sceneId = 'neon-rift' }
     Send-Command $client @{ action = 'setCrossfader'; value = 0.7 }
     $changed = Wait-Snapshot $client {
@@ -156,19 +167,21 @@ try {
     }
     if (-not $sawGesture) { throw 'OSC PrismBurst gesture was not observed' }
 
-    $maono = @($initial.audio.sources | Where-Object {
+    $maono = @($discovered.audio.sources | Where-Object {
         $_.kind -eq 'input' -and $_.name -match 'Maono'
     } | Select-Object -First 1)
-    $maonoResult = 'not present'
-    if ($maono.Count -gt 0) {
+    $maonoResult = 'not opened (default)'
+    if ($TestAudioInput -and $maono.Count -gt 0) {
         Send-Command $client @{ action = 'setAudioSource'; id = $maono[0].id }
         [void](Wait-Snapshot $client {
             param($state)
             $state.audio.sourceId -eq $maono[0].id -and $state.audio.connected
         })
         $maonoResult = 'selected'
+    } elseif ($TestAudioInput) {
+        $maonoResult = 'not present'
     }
-    Write-Output "IPC smoke passed: 1080p sender, $($initial.audio.sources.Count) audio sources, Maono $maonoResult, pipe commands/reconnect, OSC commands/gesture"
+    Write-Output "IPC smoke passed: 1080p sender, $($discovered.audio.sources.Count) audio sources, Maono $maonoResult, pipe commands/reconnect, OSC commands/gesture"
 }
 finally {
     if ($client) { $client.Dispose() }

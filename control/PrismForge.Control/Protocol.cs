@@ -15,7 +15,8 @@ public static class ProtocolCodec
 {
     public const int ProtocolVersion = 1;
     public const int PrefixSize = 4;
-    public const int MaxMessageBytes = 4 * 1024 * 1024;
+    // Match the Engine's v1 pipe cap in both directions.
+    public const int MaxMessageBytes = 65_536;
 
     private static readonly HashSet<string> EnvelopeTypes = new(StringComparer.Ordinal)
     {

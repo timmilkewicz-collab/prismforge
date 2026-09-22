@@ -10,6 +10,16 @@ status file or visible PrismBurst process is a further conservative refusal
 gate. WinMM does not provide a universal cross-application ownership guarantee,
 so do not run both apps against the same Launchpad during a show.
 
+After an opted-in open, a dedicated worker checks for a PrismBurst process or
+fresh status file about every 200 ms. If PrismBurst appears, PrismForge makes a
+one-way yield for that Engine session: it ignores pending MIDI actions, stops
+LED feedback, and closes both WinMM ports on the worker instead of blocking
+render/Spout. It deliberately does not send an all-dark LED frame during the
+handoff, because PrismBurst may already be lighting the controller. Restart
+PrismForge after PrismBurst exits if you intentionally want to opt in again.
+This handoff policy is unit-tested with synthetic ownership transitions; actual
+hot coexistence and physical port release still need supervised hardware proof.
+
 The profile binds 50 distinct physical controls exactly once. The remaining
 30 are dark. An unsaved cue's recall pad is also dark even though that pad is
 reserved for recall; it lights when the cue is actually available.

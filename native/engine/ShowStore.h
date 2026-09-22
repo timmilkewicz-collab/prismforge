@@ -18,15 +18,24 @@ namespace prismforge {
 class ShowStore {
  public:
   ShowStore();
+  // Explicit paths keep destructive recovery tests away from real show data.
+  ShowStore(std::filesystem::path autosavePath,
+            std::filesystem::path showsDirectory);
   ~ShowStore();
   ShowStore(const ShowStore&) = delete;
   ShowStore& operator=(const ShowStore&) = delete;
 
-  [[nodiscard]] bool Ready() const noexcept { return !autosavePath_.empty(); }
+  [[nodiscard]] bool Ready() const noexcept {
+    return !autosavePath_.empty() && !showsDirectory_.empty();
+  }
   [[nodiscard]] const std::filesystem::path& AutosavePath() const noexcept {
     return autosavePath_;
   }
   bool LoadAutosave(ShowState& show, std::string& error) const;
+  // Same-directory, non-replacing move of a rejected autosave. If this fails,
+  // the caller must not queue another autosave for the current run.
+  bool PreserveRejectedAutosave(std::filesystem::path& preservedPath,
+                                std::string& error) const;
   bool LoadPortable(ShowState& show, const std::string& name,
                     std::string& error) const;
   bool RequestAutosave(const ShowState& show);

@@ -200,12 +200,53 @@ ShowStore::ShowStore() {
   worker_ = std::thread([this] { Worker(); });
 }
 
+ShowStore::ShowStore(std::filesystem::path autosavePath,
+                     std::filesystem::path showsDirectory)
+    : autosavePath_(std::move(autosavePath)),
+      showsDirectory_(std::move(showsDirectory)) {
+  if (Ready()) worker_ = std::thread([this] { Worker(); });
+}
+
 ShowStore::~ShowStore() { Stop(); }
 
 bool ShowStore::LoadAutosave(ShowState& show, std::string& error) const {
   if (!Ready()) { error = "Known-folder lookup failed"; return false; }
   if (!std::filesystem::exists(autosavePath_)) return false;
   return ReadBundleFile(autosavePath_, show, error);
+}
+
+bool ShowStore::PreserveRejectedAutosave(std::filesystem::path& preservedPath,
+                                         std::string& error) const {
+  if (!Ready()) { error = "Known-folder lookup failed"; return false; }
+  std::error_code ec;
+  if (!std::filesystem::is_regular_file(autosavePath_, ec)) {
+    error = "Rejected autosave is not a regular file";
+    return false;
+  }
+  FILETIME now{};
+  GetSystemTimeAsFileTime(&now);
+  const auto stamp = (static_cast<std::uint64_t>(now.dwHighDateTime) << 32) |
+      now.dwLowDateTime;
+  for (unsigned attempt = 0; attempt < 16; ++attempt) {
+    auto candidate = autosavePath_;
+    candidate += L".rejected." + std::to_wstring(stamp) + L"." +
+        std::to_wstring(GetCurrentProcessId()) + L"." +
+        std::to_wstring(attempt);
+    // No MOVEFILE_REPLACE_EXISTING: recovery must never overwrite another file.
+    if (MoveFileExW(autosavePath_.c_str(), candidate.c_str(),
+                    MOVEFILE_WRITE_THROUGH)) {
+      preservedPath = std::move(candidate);
+      return true;
+    }
+    const DWORD code = GetLastError();
+    if (code != ERROR_FILE_EXISTS && code != ERROR_ALREADY_EXISTS) {
+      error = "Cannot preserve rejected autosave (Win32 " +
+          std::to_string(code) + ")";
+      return false;
+    }
+  }
+  error = "Could not find an unused rejected-autosave name";
+  return false;
 }
 
 bool ShowStore::LoadPortable(ShowState& show, const std::string& name,

@@ -62,6 +62,20 @@ using LaunchpadLedFrame = std::array<std::uint8_t, 80>;
     const ShowSnapshot& show, const std::array<bool, 8>& cueSaved,
     const std::bitset<80>& pressed) noexcept;
 
+// A one-way ownership decision: once PrismBurst appears, this PrismForge
+// session must release the controller rather than silently reclaiming it.
+class LaunchpadOwnershipGate {
+ public:
+  [[nodiscard]] bool Observe(bool prismBurstActive) noexcept {
+    yielded_ = yielded_ || prismBurstActive;
+    return yielded_;
+  }
+  [[nodiscard]] bool Yielded() const noexcept { return yielded_; }
+
+ private:
+  bool yielded_ = false;
+};
+
 // Pure, deterministic engine-thread state machine. Guarded save requires a
 // complete press/release lasting at least 1200 ms. Repeated Note On messages
 // while held cannot trigger the same action twice.
@@ -99,6 +113,7 @@ class MidiBridge {
   bool QueueFeedback(const LaunchpadLedFrame& frame) noexcept;
   [[nodiscard]] bool IsOpen() const noexcept;
   [[nodiscard]] bool FeedbackEnabled() const noexcept;
+  [[nodiscard]] bool YieldedToPrismBurst() const noexcept;
   [[nodiscard]] std::uint64_t DroppedInput() const noexcept;
   [[nodiscard]] std::uint64_t DroppedFeedback() const noexcept;
 

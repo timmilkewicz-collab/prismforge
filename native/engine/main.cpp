@@ -1,4 +1,4 @@
-#include "AudioCapture.h"
+#include "AudioSwitcher.h"
 #include "MidiBridge.h"
 #include "OscBridge.h"
 #include "PipeServer.h"
@@ -24,6 +24,8 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 using namespace prismforge;
 using Json = nlohmann::json;
@@ -155,10 +157,9 @@ Json SnapshotJson(const ShowState& show, const SignalFrameV1& signal,
 }
 
 bool ApplyCommand(const QueuedCommand& command, ShowState& show,
-                  const Json& catalog, AudioCapture& audio,
+                  const Json& catalog, AudioSwitcher& audio,
                   ShowStore& store,
                   bool persistenceEnabled,
-                  std::string& sourceId,
                   std::array<bool, ShowState::kCueCount>& cueSaved,
                   std::uint64_t beatCount, std::string& error) {
   try {
@@ -225,12 +226,9 @@ bool ApplyCommand(const QueuedCommand& command, ShowState& show,
       }
     } else if (command.name == "setAudioSource") {
       const std::string id = payload.at("id").get<std::string>();
-      const bool loopback = id == "system-default" || id.rfind("loopback:", 0) == 0;
-      if (!loopback && id.rfind("input:", 0) != 0) {
-        throw std::invalid_argument("Unknown audio source");
-      }
-      if (!audio.Start(loopback, id == "system-default" ? "" : id, error)) return false;
-      sourceId = id;
+      if (!audio.Request(id, error)) return false;
+      // The worker reports success/failure later; no show revision changes yet.
+      return false;
     } else if (command.name == "saveShow") {
       if (!persistenceEnabled) throw std::invalid_argument("Persistence disabled");
       if (!store.RequestPortableSave(show, payload.at("name").get<std::string>(), error)) {
@@ -353,14 +351,12 @@ int main(int argc, char** argv) {
   BoundedQueue<MidiMessage> midiMessages(128);
   MidiBridge midi(midiMessages);
   LaunchpadSInterpreter launchpad;
-  AudioCapture audio(audioQueue);
+  AudioSwitcher audio(audioQueue);
   std::string audioSource = "system-default";
-  if (!noAudio && !audio.Start(true, "", error)) {
-    std::cerr << "Audio unavailable; visuals continue: " << error << '\n';
+  if (!audio.Start(!noAudio, error)) {
+    std::cerr << "Audio worker unavailable; visuals continue: " << error << '\n';
   }
-  error.clear();
-  const auto devices = audio.Devices(error);
-  if (!error.empty()) std::cerr << error << '\n';
+  std::vector<AudioDeviceInfo> devices;
   PipeServer pipe(commands);
   pipe.Start();
   OscBridge osc(commands, gestures);
@@ -371,11 +367,22 @@ int main(int argc, char** argv) {
   SignalAnalyzer analyzer(audio.SampleRate());
   ShowState show;
   ShowStore store;
+  bool persistenceEnabled = !noPersist;
   error.clear();
-  if (!noPersist && store.LoadAutosave(show, error)) {
-    std::cout << "Restored autosave from " << store.AutosavePath() << '\n';
-  } else if (!error.empty()) {
-    std::cerr << error << '\n';
+  if (persistenceEnabled) {
+    if (store.LoadAutosave(show, error)) {
+      std::cout << "Restored autosave from " << store.AutosavePath() << '\n';
+    } else if (!error.empty()) {
+      std::cerr << "Autosave rejected: " << error << '\n';
+      std::filesystem::path preserved;
+      error.clear();
+      if (store.PreserveRejectedAutosave(preserved, error)) {
+        std::cerr << "Rejected autosave preserved at " << preserved << '\n';
+      } else {
+        persistenceEnabled = false;
+        std::cerr << "Autosave disabled for this run: " << error << '\n';
+      }
+    }
   }
   QualityGovernor governor;
   std::array<bool, ShowState::kCueCount> cueSaved{};
@@ -389,6 +396,7 @@ int main(int argc, char** argv) {
       std::cout << "Launchpad S input and mapped-only LED feedback enabled.\n";
     }
   }
+  bool launchpadYieldAnnounced = false;
   std::array<float, ShowState::kMaxModulationRoutes> routeSmoothing{};
   float gestureMotion = 0.0f;
   std::string gestureName;
@@ -408,6 +416,26 @@ int main(int argc, char** argv) {
   auto lastAutosave = start;
   auto lastHealth = start;
   while (g_running && (seconds == 0 || Clock::now() - start < std::chrono::seconds(seconds))) {
+    while (auto event = audio.Poll()) {
+      if (event->hasDevices) {
+        devices = std::move(event->devices);
+        ++revision;
+      }
+      if (event->kind == AudioSwitchEventKind::Switched) {
+        audioSource = event->activeId;
+        while (audioQueue.TryPop()) {}  // Drop blocks from the prior sample clock.
+        analyzer = SignalAnalyzer(event->sampleRate);
+        lastHitCount = 0;
+        lastAccentCount = 0;
+        ++revision;
+      } else if (event->kind == AudioSwitchEventKind::Disconnected) {
+        ++revision;
+      }
+      if (!event->error.empty()) {
+        std::cerr << "Audio device: " << event->error << '\n';
+        pipe.ReportError(event->error, "");
+      }
+    }
     gestureMotion *= 0.94f;
     while (auto gesture = gestures.TryPop()) {
       gestureMotion = std::max(gestureMotion, gesture->strength);
@@ -432,8 +460,8 @@ int main(int argc, char** argv) {
       error.clear();
       const bool changed = command->name == "reloadShaders" ?
           renderer.ReloadShaders(error) :
-          ApplyCommand(*command, show, sceneCatalog, audio, store, !noPersist,
-                       audioSource, cueSaved, beatCount, error);
+          ApplyCommand(*command, show, sceneCatalog, audio, store,
+                       persistenceEnabled, cueSaved, beatCount, error);
       if (changed) ++revision;
       if (!error.empty()) {
         std::cerr << "Command error: " << error << '\n';
@@ -441,8 +469,9 @@ int main(int argc, char** argv) {
       }
     }
     while (auto message = midiMessages.TryPop()) {
+      if (midi.YieldedToPrismBurst()) continue;
       const auto action = launchpad.Process(*message);
-      if (!action) continue;
+      if (!action || midi.YieldedToPrismBurst()) continue;
       bool changed = false;
       switch (action->type) {
         case LaunchpadActionType::SetScene:
@@ -469,6 +498,12 @@ int main(int argc, char** argv) {
           break;
       }
       if (changed) ++revision;
+    }
+    if (midi.YieldedToPrismBurst() && !launchpadYieldAnnounced) {
+      launchpad.Reset();
+      launchpadYieldAnnounced = true;
+      std::cerr << "Launchpad S yielded to PrismBurst; MIDI input and LED output "
+                   "are closed. Restart PrismForge to opt in again.\n";
     }
     if (midi.FeedbackEnabled()) {
       std::array<bool, 8> firstEightCues{};
@@ -512,7 +547,7 @@ int main(int argc, char** argv) {
                               gestureMotion, gestureName));
       lastPublish = now;
     }
-    if (!noPersist && now - lastAutosave >= std::chrono::seconds(10) &&
+    if (persistenceEnabled && now - lastAutosave >= std::chrono::seconds(10) &&
         revision != lastSavedRevision) {
       if (store.RequestAutosave(show)) lastSavedRevision = revision;
       lastAutosave = now;
@@ -525,7 +560,7 @@ int main(int argc, char** argv) {
   pipe.Stop();
   osc.Stop();
   midi.Stop();
-  if (!noPersist) (void)store.RequestAutosave(show);
+  if (persistenceEnabled) (void)store.RequestAutosave(show);
   store.Stop();
   audio.Stop();
   renderer.Shutdown();

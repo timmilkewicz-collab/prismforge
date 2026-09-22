@@ -37,6 +37,7 @@ endif()
 add_executable(PrismForge.Engine
   main.cpp
   AudioCapture.cpp
+  AudioSwitcher.cpp
   MidiBridge.cpp
   OscBridge.cpp
   PipeServer.cpp

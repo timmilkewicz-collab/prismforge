@@ -238,6 +238,9 @@ struct MidiBridge::Impl {
   BoundedQueue<LaunchpadLedFrame> feedbackQueue{4};
   HMIDIIN input = nullptr;
   HMIDIOUT output = nullptr;
+  std::atomic_bool inputActive{false};
+  std::atomic_bool outputActive{false};
+  std::atomic_bool yielded{false};
   std::atomic_bool outputRunning{false};
   std::thread outputThread;
   std::optional<LaunchpadLedFrame> lastQueued;
@@ -248,6 +251,7 @@ struct MidiBridge::Impl {
                               DWORD_PTR data, DWORD_PTR timestamp) noexcept {
     if (event != MIM_DATA || instance == 0) return;
     auto* self = reinterpret_cast<Impl*>(instance);
+    if (self->yielded.load()) return;
     MidiMessage message{
         static_cast<std::uint8_t>(data & 0xFF),
         static_cast<std::uint8_t>((data >> 8) & 0xFF),
@@ -260,7 +264,33 @@ struct MidiBridge::Impl {
     LaunchpadLedFrame lastSent{};
     lastSent.fill(0xFF);  // First frame explicitly darkens all unmapped keys.
     std::optional<LaunchpadLedFrame> desired;
+    LaunchpadOwnershipGate ownership;
+    auto nextOwnershipCheck = std::chrono::steady_clock::time_point{};
     while (outputRunning.load(std::memory_order_relaxed)) {
+      const auto now = std::chrono::steady_clock::now();
+      if (now >= nextOwnershipCheck) {
+        nextOwnershipCheck = now + std::chrono::milliseconds(200);
+        if (ownership.Observe(PrismBurstLikelyActive())) {
+          // Publish the yield before any potentially blocking WinMM close.
+          // The engine thread now ignores queued input and stops LED updates.
+          yielded = true;
+          inputActive = false;
+          outputActive = false;
+          if (input) {
+            (void)midiInStop(input);
+            (void)midiInReset(input);
+            (void)midiInClose(input);
+            input = nullptr;
+          }
+          if (output) {
+            // PrismBurst may already own the LEDs: do not send a dark frame.
+            (void)midiOutClose(output);
+            output = nullptr;
+          }
+          outputRunning = false;
+          return;
+        }
+      }
       while (auto frame = feedbackQueue.TryPop()) desired = std::move(*frame);
       if (desired && output) {
         for (std::size_t slot = 0; slot < desired->size(); ++slot) {
@@ -318,6 +348,10 @@ std::vector<MidiDeviceInfo> MidiBridge::OutputDevices() {
 }
 
 bool MidiBridge::OpenInput(unsigned deviceId, std::string& error) {
+  if (impl_->yielded) {
+    error = "Launchpad S was yielded to PrismBurst; restart PrismForge before reopening MIDI";
+    return false;
+  }
   if (impl_->input) {
     error = "MIDI input is already open";
     return false;
@@ -348,10 +382,15 @@ bool MidiBridge::OpenInput(unsigned deviceId, std::string& error) {
     error = WinMmError("midiInStart", startResult);
     return false;
   }
+  impl_->inputActive = true;
   return true;
 }
 
 bool MidiBridge::OpenLaunchpadS(bool feedback, std::string& error) {
+  if (impl_->yielded) {
+    error = "Launchpad S was yielded to PrismBurst; restart PrismForge before reopening MIDI";
+    return false;
+  }
   if (impl_->input) {
     error = "MIDI input is already open";
     return false;
@@ -397,21 +436,26 @@ bool MidiBridge::OpenLaunchpadS(bool feedback, std::string& error) {
       Stop();
       return false;
     }
-    impl_->outputRunning = true;
-    impl_->outputThread = std::thread([this] { impl_->OutputLoop(); });
+    impl_->outputActive = true;
   }
+  // This worker also watches ownership without LED feedback. After startup,
+  // ownership checks and any WinMM close stay off the render thread.
+  impl_->outputRunning = true;
+  impl_->outputThread = std::thread([this] { impl_->OutputLoop(); });
   return true;
 }
 
 void MidiBridge::Stop() noexcept {
+  impl_->inputActive = false;
+  impl_->outputActive = false;
+  impl_->outputRunning = false;
+  if (impl_->outputThread.joinable()) impl_->outputThread.join();
   if (impl_->input) {
     (void)midiInStop(impl_->input);
     (void)midiInReset(impl_->input);
     (void)midiInClose(impl_->input);
     impl_->input = nullptr;
   }
-  impl_->outputRunning = false;
-  if (impl_->outputThread.joinable()) impl_->outputThread.join();
   if (impl_->output) {
     (void)midiOutClose(impl_->output);
     impl_->output = nullptr;
@@ -420,7 +464,7 @@ void MidiBridge::Stop() noexcept {
 }
 
 bool MidiBridge::QueueFeedback(const LaunchpadLedFrame& frame) noexcept {
-  if (!impl_->output) return false;
+  if (!impl_->outputActive.load()) return false;
   if (impl_->lastQueued && *impl_->lastQueued == frame) return true;
   if (!impl_->feedbackQueue.TryPush(frame)) {
     ++impl_->droppedFeedback;
@@ -430,8 +474,9 @@ bool MidiBridge::QueueFeedback(const LaunchpadLedFrame& frame) noexcept {
   return true;
 }
 
-bool MidiBridge::IsOpen() const noexcept { return impl_->input != nullptr; }
-bool MidiBridge::FeedbackEnabled() const noexcept { return impl_->output != nullptr; }
+bool MidiBridge::IsOpen() const noexcept { return impl_->inputActive.load(); }
+bool MidiBridge::FeedbackEnabled() const noexcept { return impl_->outputActive.load(); }
+bool MidiBridge::YieldedToPrismBurst() const noexcept { return impl_->yielded.load(); }
 std::uint64_t MidiBridge::DroppedInput() const noexcept {
   return impl_->droppedInput.load();
 }

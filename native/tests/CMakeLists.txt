@@ -28,3 +28,29 @@ if(MSVC)
   target_compile_options(prismforge_midi_tests PRIVATE /W4 /permissive-)
 endif()
 add_test(NAME prismforge_midi_tests COMMAND prismforge_midi_tests)
+
+add_executable(prismforge_store_tests
+  StoreTests.cpp
+  ../engine/ShowStore.cpp)
+target_include_directories(prismforge_store_tests PRIVATE ../engine)
+target_compile_definitions(prismforge_store_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(prismforge_store_tests PRIVATE
+  prismforge_core nlohmann_json::nlohmann_json shell32 ole32)
+if(MSVC)
+  target_compile_options(prismforge_store_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME prismforge_store_tests COMMAND prismforge_store_tests)
+
+add_executable(prismforge_audio_tests
+  AudioTests.cpp
+  ../engine/AudioCapture.cpp
+  ../engine/AudioSwitcher.cpp)
+target_include_directories(prismforge_audio_tests PRIVATE
+  ../engine
+  $<TARGET_PROPERTY:PrismForge.Engine,INCLUDE_DIRECTORIES>)
+target_compile_definitions(prismforge_audio_tests PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(prismforge_audio_tests PRIVATE prismforge_core ole32)
+if(MSVC)
+  target_compile_options(prismforge_audio_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME prismforge_audio_tests COMMAND prismforge_audio_tests)

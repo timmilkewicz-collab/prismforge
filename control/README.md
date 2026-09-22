@@ -45,7 +45,7 @@ Each message is encoded as:
 1. Four-byte unsigned little-endian JSON byte length.
 2. UTF-8 JSON, with no delimiter or terminator.
 
-The maximum accepted message is 4 MiB. The control process rejects invalid
+The maximum accepted message is 65,536 bytes. The control process rejects invalid
 lengths, invalid UTF-8/JSON, unknown envelope types, and commands outside the
 allowlist before they reach the pipe.
 

@@ -4,15 +4,71 @@
 #include "AudioCapture.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstring>
+#include <thread>
 #include <utility>
 
 namespace prismforge {
 
-AudioCapture::AudioCapture(BoundedQueue<AudioBlock>& queue) : queue_(queue) {}
-AudioCapture::~AudioCapture() { Stop(); }
+bool detail::AudioCallbackGate::Enter() noexcept {
+  inFlight_.fetch_add(1, std::memory_order_seq_cst);
+  if (!active_.load(std::memory_order_seq_cst)) {
+    Exit();
+    return false;
+  }
+  return true;
+}
+
+void detail::AudioCallbackGate::Exit() noexcept {
+  inFlight_.fetch_sub(1, std::memory_order_seq_cst);
+}
+
+void detail::AudioCallbackGate::Activate() noexcept {
+  active_.store(true, std::memory_order_seq_cst);
+}
+
+void detail::AudioCallbackGate::DeactivateAndDrain() noexcept {
+  active_.store(false, std::memory_order_seq_cst);
+  while (inFlight_.load(std::memory_order_seq_cst) != 0) {
+    std::this_thread::yield();
+  }
+}
+
+namespace {
+std::wstring_view EndpointString(const ma_device_id& id) {
+  std::size_t length = 0;
+  while (length < std::size(id.wasapi) && id.wasapi[length] != 0) ++length;
+  if (length == 0 || length == std::size(id.wasapi)) return {};
+  return {id.wasapi, length};
+}
+}  // namespace
+
+std::string WasapiSourceId(bool loopback, std::wstring_view endpointId) {
+  if (endpointId.empty() || endpointId.size() >= 64) return {};
+  static constexpr char hex[] = "0123456789ABCDEF";
+  std::string result = loopback ? "loopback:wasapi:" : "input:wasapi:";
+  result.reserve(result.size() + endpointId.size() * 4);
+  for (wchar_t ch : endpointId) {
+    if (ch == 0 || static_cast<std::uint32_t>(ch) > 0xFFFF) return {};
+    const auto code = static_cast<std::uint16_t>(ch);
+    result.push_back(hex[(code >> 12) & 0xF]);
+    result.push_back(hex[(code >> 8) & 0xF]);
+    result.push_back(hex[(code >> 4) & 0xF]);
+    result.push_back(hex[code & 0xF]);
+  }
+  return result;
+}
+
+AudioCapture::AudioCapture(BoundedQueue<AudioBlock>& queue, bool active)
+    : queue_(queue), callbackGate_(active) {}
+AudioCapture::~AudioCapture() {
+  Stop();
+  if (contextReady_) ma_context_uninit(&context_);
+}
 
 std::vector<AudioDeviceInfo> AudioCapture::Devices(std::string& error) {
+  error.clear();
   std::vector<AudioDeviceInfo> result;
   if (!contextReady_) {
     const ma_backend backend = ma_backend_wasapi;
@@ -34,19 +90,22 @@ std::vector<AudioDeviceInfo> AudioCapture::Devices(std::string& error) {
     return result;
   }
   for (ma_uint32 i = 0; i < playbackCount; ++i) {
-    result.push_back({"loopback:" + std::to_string(i), playback[i].name, true});
+    const auto id = WasapiSourceId(true, EndpointString(playback[i].id));
+    if (!id.empty()) result.push_back({id, playback[i].name, true});
   }
   for (ma_uint32 i = 0; i < captureCount; ++i) {
-    result.push_back({"input:" + std::to_string(i), capture[i].name, false});
+    const auto id = WasapiSourceId(false, EndpointString(capture[i].id));
+    if (!id.empty()) result.push_back({id, capture[i].name, false});
   }
   return result;
 }
 
-bool AudioCapture::Start(bool loopback, const std::string& deviceName,
+bool AudioCapture::Start(bool loopback, const std::string& sourceId,
                          std::string& error) {
+  error.clear();
   Stop();
   (void)Devices(error);
-  if (!contextReady_) return false;
+  if (!contextReady_ || !error.empty()) return false;
   ma_device_info* playback = nullptr;
   ma_device_info* capture = nullptr;
   ma_uint32 playbackCount = 0;
@@ -64,24 +123,28 @@ bool AudioCapture::Start(bool loopback, const std::string& deviceName,
   config.capture.channels = 1;
   config.sampleRate = 48000;
   config.dataCallback = DataCallback;
+  config.notificationCallback = NotificationCallback;
   config.pUserData = this;
-  if (!deviceName.empty()) {
+  ma_device_id selectedId{};
+  if (!sourceId.empty()) {
     const auto* devices = loopback ? playback : capture;
     const ma_uint32 count = loopback ? playbackCount : captureCount;
-    const ma_device_info* selected = nullptr;
+    bool selected = false;
     for (ma_uint32 i = 0; i < count; ++i) {
-      const std::string id = std::string(loopback ? "loopback:" : "input:") +
-          std::to_string(i);
-      if (deviceName == devices[i].name || deviceName == id) {
-        selected = &devices[i];
-        break;
+      if (sourceId == WasapiSourceId(loopback, EndpointString(devices[i].id))) {
+        if (selected) {
+          error = "Requested WASAPI endpoint identity is ambiguous";
+          return false;
+        }
+        selectedId = devices[i].id;
+        selected = true;
       }
     }
     if (!selected) {
-      error = "Requested audio device was not found: " + deviceName;
+      error = "Requested WASAPI endpoint is no longer present";
       return false;
     }
-    config.capture.pDeviceID = &selected->id;
+    config.capture.pDeviceID = &selectedId;
   }
 
   ma_result status = ma_device_init(&context_, &config, &device_);
@@ -90,6 +153,12 @@ bool AudioCapture::Start(bool loopback, const std::string& deviceName,
     return false;
   }
   deviceReady_ = true;
+  if (!sourceId.empty() &&
+      WasapiSourceId(loopback, EndpointString(device_.capture.id)) != sourceId) {
+    error = "WASAPI endpoint changed while opening; capture rejected";
+    Stop();
+    return false;
+  }
   sampleRate_ = device_.sampleRate;
   status = ma_device_start(&device_);
   if (status != MA_SUCCESS) {
@@ -97,22 +166,40 @@ bool AudioCapture::Start(bool loopback, const std::string& deviceName,
     Stop();
     return false;
   }
-  running_ = true;
+  running_.store(true);
   return true;
 }
 
 void AudioCapture::Stop() {
+  running_.store(false);
   if (deviceReady_) {
     ma_device_uninit(&device_);
     deviceReady_ = false;
   }
-  running_ = false;
+}
+
+void AudioCapture::NotificationCallback(const ma_device_notification* notification) {
+  if (!notification || !notification->pDevice) return;
+  auto* self = static_cast<AudioCapture*>(notification->pDevice->pUserData);
+  if (!self) return;
+  if (notification->type == ma_device_notification_type_stopped ||
+      notification->type == ma_device_notification_type_interruption_began) {
+    self->running_.store(false);
+  } else if (notification->type == ma_device_notification_type_started ||
+             notification->type == ma_device_notification_type_interruption_ended) {
+    self->running_.store(true);
+  }
 }
 
 void AudioCapture::DataCallback(ma_device* device, void* /*output*/,
                                 const void* input, ma_uint32 frameCount) {
   auto* self = static_cast<AudioCapture*>(device->pUserData);
-  if (!self || !input) return;
+  if (!self || !self->callbackGate_.Enter()) return;
+  struct CallbackExit {
+    detail::AudioCallbackGate& gate;
+    ~CallbackExit() { gate.Exit(); }
+  } exit{self->callbackGate_};
+  if (!input || !self->running_.load()) return;
   const auto* samples = static_cast<const float*>(input);
   ma_uint32 offset = 0;
   while (offset < frameCount) {

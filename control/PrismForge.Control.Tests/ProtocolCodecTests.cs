@@ -8,6 +8,12 @@ namespace PrismForge.Control.Tests;
 public sealed class ProtocolCodecTests
 {
     [Fact]
+    public void MaxMessageBytes_MatchesEngineV1()
+    {
+        Assert.Equal(65_536, ProtocolCodec.MaxMessageBytes);
+    }
+
+    [Fact]
     public void Encode_WritesLittleEndianLengthAndRoundTrips()
     {
         var envelope = Command("{\"action\":\"setCrossfader\",\"value\":0.5}");

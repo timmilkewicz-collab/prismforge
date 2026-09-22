@@ -22,6 +22,11 @@ Commands currently accepted: `requestSnapshot`, `setScene` (`deck` A/B,
 (`deck`, `slot` 0–63, `source`, `target`, `amount`, `smoothing`, `enabled`),
 `saveCue` and `recallCue` (`index` 0–31; recall optionally includes
 `quantization`: `immediate`, `beat`, or `bar`), and `setAudioSource` (`id`).
+Audio source IDs are stable WASAPI endpoint identities rather than positional
+enumeration numbers; see [audio switching](AUDIO_SWITCH.md). Source-switch
+acceptance is asynchronous: a successful queue request does not change the
+selected source until a new stream has actually started. A failed switch emits
+an `ErrorEvent` while retaining the prior source.
 `saveShow` (`name`, 1–64 safe filename characters) queues an atomic portable
 bundle under `Documents\PrismForge\Shows`; `loadShow` loads a validated bundle
 by the same name. `setOverlay` and
