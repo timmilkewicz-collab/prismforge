@@ -15,6 +15,7 @@ type ViewAction =
   | { type: 'optimistic-crossfader'; value: number }
   | { type: 'optimistic-scene'; deck: DeckId; sceneId: string }
   | { type: 'optimistic-effect'; deck: DeckId; index: number; amount: number }
+  | { type: 'optimistic-master-effect'; index: number; amount: number }
   | { type: 'optimistic-safety'; control: 'blackout' | 'panicDim'; enabled: boolean }
   | { type: 'clear-notice' }
 
@@ -22,9 +23,15 @@ export const initialViewState = (): HostViewState => ({
   connection: 'connecting',
   connectionMessage: 'Looking for PrismForge engine',
   engine: initialEngineState(),
+  masterEffectsAvailable: false,
 })
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0))
+
+const normalizeMasterEffects = (current: number[], candidate?: number[]): number[] =>
+  Array.from({ length: 4 }, (_, index) =>
+    clamp01(Array.isArray(candidate) && index in candidate ? candidate[index] : current[index] ?? 0),
+  )
 
 const normalizeAudio = (current: AudioState, candidate?: Partial<AudioState>): AudioState => ({
   ...current,
@@ -63,8 +70,11 @@ export function viewReducer(state: HostViewState, action: ViewAction): HostViewS
       if (envelope.type === 'StateSnapshot') {
         const snapshot = envelope.payload as unknown as Partial<EngineState>
         const decks = snapshot.decks ?? state.engine.decks
+        const masterEffectsAvailable = Array.isArray(snapshot.masterEffects) &&
+          snapshot.masterEffects.length === 4
         return {
           ...state,
+          masterEffectsAvailable,
           engine: {
             ...state.engine,
             ...snapshot,
@@ -82,6 +92,7 @@ export function viewReducer(state: HostViewState, action: ViewAction): HostViewS
               spout: { ...state.engine.output.spout, ...snapshot.output?.spout },
             },
             crossfader: clamp01(snapshot.crossfader ?? state.engine.crossfader),
+            masterEffects: normalizeMasterEffects([0, 0, 0, 0], snapshot.masterEffects),
           },
         }
       }
@@ -140,6 +151,13 @@ export function viewReducer(state: HostViewState, action: ViewAction): HostViewS
           },
         },
       }
+    }
+    case 'optimistic-master-effect': {
+      if (!state.masterEffectsAvailable || !Number.isInteger(action.index) ||
+        action.index < 0 || action.index >= 4) return state
+      const masterEffects = normalizeMasterEffects(state.engine.masterEffects)
+      masterEffects[action.index] = clamp01(action.amount)
+      return { ...state, engine: { ...state.engine, masterEffects } }
     }
     case 'optimistic-safety':
       return { ...state, engine: { ...state.engine, [action.control]: action.enabled } }

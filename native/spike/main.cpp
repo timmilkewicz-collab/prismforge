@@ -6,7 +6,9 @@
 
 #include <SpoutDX.h>
 
+#include <algorithm>
 #include <atomic>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cstring>
@@ -257,11 +259,16 @@ int run_probe(ID3D11Device* device, ID3D11DeviceContext* context, int seconds) {
   }
   std::uint64_t received = 0;
   std::uint64_t changed_samples = 0;
-  std::optional<std::uint32_t> first_color;
+  std::array<std::uint64_t, 3> changed_by_window{};
+  std::optional<std::uint64_t> previous_signature;
   ComPtr<ID3D11Texture2D> pixel_readback;
   D3D11_TEXTURE2D_DESC readback_desc{};
-  readback_desc.Width = 1;
-  readback_desc.Height = 1;
+  // A center-pixel probe falsely rejects scenes with an intentionally dark
+  // focal void. Sample a small spatial grid without reading back 1080p frames.
+  constexpr UINT kSampleColumns = 8;
+  constexpr UINT kSampleRows = 5;
+  readback_desc.Width = kSampleColumns;
+  readback_desc.Height = kSampleRows;
   readback_desc.MipLevels = 1;
   readback_desc.ArraySize = 1;
   readback_desc.Format = kFormat;
@@ -273,7 +280,9 @@ int run_probe(ID3D11Device* device, ID3D11DeviceContext* context, int seconds) {
   const auto start = Clock::now();
   auto next_sample = start;
   while (g_running && Clock::now() - start < std::chrono::seconds(seconds)) {
-    if (receiver.ReceiveTexture() && receiver.IsConnected() &&
+    const bool texture_received = receiver.ReceiveTexture();
+    const bool sender_updated = receiver.IsUpdated();
+    if (texture_received && !sender_updated && receiver.IsConnected() &&
         receiver.GetSenderTexture()) {
       if (receiver.GetSenderWidth() != kWidth ||
           receiver.GetSenderHeight() != kHeight ||
@@ -284,19 +293,46 @@ int run_probe(ID3D11Device* device, ID3D11DeviceContext* context, int seconds) {
       if (receiver.IsFrameNew()) {
         ++received;
         if (Clock::now() >= next_sample) {
-          const D3D11_BOX box = {kWidth / 2, kHeight / 2, 0,
-                                 kWidth / 2 + 1, kHeight / 2 + 1, 1};
-          context->CopySubresourceRegion(pixel_readback.Get(), 0, 0, 0, 0,
-                                         receiver.GetSenderTexture(), 0, &box);
+          for (UINT row = 0; row < kSampleRows; ++row) {
+            for (UINT column = 0; column < kSampleColumns; ++column) {
+              const UINT x = ((2 * column + 1) * kWidth) /
+                             (2 * kSampleColumns);
+              const UINT y = ((2 * row + 1) * kHeight) /
+                             (2 * kSampleRows);
+              const D3D11_BOX box = {x, y, 0, x + 1, y + 1, 1};
+              context->CopySubresourceRegion(pixel_readback.Get(), 0,
+                                             column, row, 0,
+                                             receiver.GetSenderTexture(), 0,
+                                             &box);
+            }
+          }
           D3D11_MAPPED_SUBRESOURCE mapped{};
           const HRESULT map_hr = context->Map(pixel_readback.Get(), 0, D3D11_MAP_READ,
                                                0, &mapped);
           if (FAILED(map_hr)) { report_hresult("Map readback", map_hr); return 2; }
-          std::uint32_t color = 0;
-          std::memcpy(&color, mapped.pData, sizeof(color));
+          std::uint64_t signature = 1469598103934665603ULL;
+          for (UINT row = 0; row < kSampleRows; ++row) {
+            const auto* scanline = static_cast<const std::uint8_t*>(mapped.pData) +
+                                   row * mapped.RowPitch;
+            for (UINT column = 0; column < kSampleColumns; ++column) {
+              std::uint32_t color = 0;
+              std::memcpy(&color, scanline + column * sizeof(color),
+                          sizeof(color));
+              signature ^= color;
+              signature *= 1099511628211ULL;
+            }
+          }
           context->Unmap(pixel_readback.Get(), 0);
-          if (!first_color) first_color = color;
-          else if (color != *first_color) ++changed_samples;
+          if (previous_signature && signature != *previous_signature) {
+            ++changed_samples;
+            const auto elapsed = Clock::now() - start;
+            const auto window = std::min<std::size_t>(
+                2, static_cast<std::size_t>(
+                       std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count() * 3 /
+                       (seconds * 1000)));
+            ++changed_by_window[window];
+          }
+          previous_signature = signature;
           next_sample += std::chrono::milliseconds(200);
         }
       }
@@ -304,12 +340,17 @@ int run_probe(ID3D11Device* device, ID3D11DeviceContext* context, int seconds) {
     std::this_thread::sleep_for(std::chrono::milliseconds(8));
   }
   std::cout << "Probe: connected=" << std::boolalpha << receiver.IsConnected()
-            << " new_frames=" << received << " changed_pixel_samples="
-            << changed_samples << " expected=" << kWidth << "x"
+            << " new_frames=" << received << " changed_grid_samples="
+            << changed_samples << " change_windows=" << changed_by_window[0]
+            << "," << changed_by_window[1] << "," << changed_by_window[2]
+            << " expected=" << kWidth << "x"
             << kHeight << " BGRA8\n";
   receiver.ReleaseReceiver();
   receiver.CloseDirectX11();
-  return received >= 2 && changed_samples >= 2 ? 0 : 3;
+  const bool continuous_motion = seconds < 6 ||
+      (changed_by_window[0] >= 2 && changed_by_window[1] >= 2 &&
+       changed_by_window[2] >= 2);
+  return received >= 2 && changed_samples >= 2 && continuous_motion ? 0 : 3;
 }
 
 }  // namespace

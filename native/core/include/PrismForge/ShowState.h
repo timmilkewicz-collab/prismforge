@@ -9,10 +9,11 @@
 
 namespace prismforge {
 
-inline constexpr std::array<std::string_view, 12> kSceneIds = {
+inline constexpr std::array<std::string_view, 16> kSceneIds = {
     "ink-tide", "prism-atrium", "chrome-flock", "signal-lab",
     "neon-rift", "media-alchemy", "reaction-bloom", "harmonic-sand",
-    "constellation", "fold-temple", "dream-grove", "living-point-cloud"};
+    "constellation", "fold-temple", "dream-grove", "living-point-cloud",
+    "hex-vortex", "ferrofluid-reactor", "shardwell", "neon-orbs"};
 
 struct DeckState {
   std::string sceneId = "ink-tide";

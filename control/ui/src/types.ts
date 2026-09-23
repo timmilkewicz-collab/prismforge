@@ -81,6 +81,7 @@ export interface EngineState {
   revision: number
   decks: Record<DeckId, DeckState>
   crossfader: number
+  masterEffects: number[]
   blackout: boolean
   panicDim: boolean
   sceneCatalog: SceneDescriptor[]
@@ -103,6 +104,7 @@ export interface HostViewState {
   connection: HostConnection
   connectionMessage: string
   engine: EngineState
+  masterEffectsAvailable: boolean
   notice?: { kind: 'info' | 'error'; message: string }
 }
 
@@ -124,6 +126,7 @@ export const initialEngineState = (): EngineState => ({
   revision: 0,
   decks: { A: emptyDeck(), B: emptyDeck() },
   crossfader: 0.5,
+  masterEffects: [0, 0, 0, 0],
   blackout: false,
   panicDim: false,
   sceneCatalog: [],

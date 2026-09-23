@@ -55,6 +55,28 @@ int main() {
   CHECK(!restored.Restore(invalid, show.Cues(), show.Routes()));
   CHECK(restored.Current().crossfader == 0.8f);
 
+  ShowState performance;
+  CHECK(performance.SetScene(0, "hex-vortex"));
+  CHECK(performance.SetScene(1, "ferrofluid-reactor"));
+  CHECK(performance.SetMasterEffect(0, 0.35f));
+  CHECK(performance.SetMasterEffect(3, 0.42f));
+  CHECK(!performance.SetMasterEffect(4, 0.5f));
+  CHECK(!performance.SetMasterEffect(0, std::numeric_limits<float>::quiet_NaN()));
+  CHECK(performance.SaveCue(1));
+  CHECK(performance.SetMasterEffect(0, 0.0f));
+  CHECK(performance.RecallCue(1, Quantization::Immediate, 0));
+  CHECK(performance.Current().decks[0].sceneId == "hex-vortex");
+  CHECK(performance.Current().decks[1].sceneId == "ferrofluid-reactor");
+  CHECK(performance.Current().masterEffects[0] == 0.35f);
+  CHECK(performance.Current().masterEffects[3] == 0.42f);
+  CHECK(performance.SetScene(0, "shardwell"));
+  CHECK(performance.SetScene(1, "neon-orbs"));
+  CHECK(performance.Current().decks[0].sceneId == "shardwell");
+  CHECK(performance.Current().decks[1].sceneId == "neon-orbs");
+  CHECK(performance.RecallCue(1, Quantization::Immediate, 0));
+  CHECK(performance.Current().decks[0].sceneId == "hex-vortex");
+  CHECK(performance.Current().decks[1].sceneId == "ferrofluid-reactor");
+
   QualityGovernor governor;
   for (int i = 0; i < 250; ++i) governor.ObserveFrameMilliseconds(35.0);
   CHECK(governor.TierIndex() > 0);

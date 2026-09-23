@@ -33,7 +33,8 @@ function Read-Snapshot {
         '.', 'PrismForge.v1', [System.IO.Pipes.PipeDirection]::InOut,
         [System.IO.Pipes.PipeOptions]::Asynchronous)
     try {
-        $pipe.Connect(8000)
+        # Allow a cold 64-variant shader compile before the Engine opens IPC.
+        $pipe.Connect(30000)
         for ($index = 0; $index -lt 30; $index++) {
             $header = Read-Exact $pipe 4
             $length = [BitConverter]::ToUInt32($header, 0)
@@ -62,7 +63,7 @@ try {
         throw 'Engine output was not ready before the UI crash'
     }
 
-    $control = Start-Process -FilePath $controlFile -PassThru
+    $control = Start-Process -FilePath $controlFile -PassThru -WindowStyle Hidden
     Start-Sleep -Seconds 3
     $control.Refresh()
     if ($control.HasExited) { throw 'Control exited before crash simulation' }

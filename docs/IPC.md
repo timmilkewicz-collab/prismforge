@@ -27,15 +27,16 @@ enumeration numbers; see [audio switching](AUDIO_SWITCH.md). Source-switch
 acceptance is asynchronous: a successful queue request does not change the
 selected source until a new stream has actually started. A failed switch emits
 an `ErrorEvent` while retaining the prior source.
-`saveShow` (`name`, 1–64 safe filename characters) queues an atomic portable
+`setMasterEffect` (`index` 0–3, `amount` 0–1) controls Motion, Warp, Trails
+and Color in the renderer. All four default to zero and are stored in cues and
+show bundles. `saveShow` (`name`, 1–64 safe filename characters) queues an atomic portable
 bundle under `Documents\PrismForge\Shows`; `loadShow` loads a validated bundle
-by the same name. `setOverlay` and
-`setMasterEffect` update their state slots but their render effects are still
-under development. `reloadShaders` compiles all scene passes before swapping
+by the same name. `setOverlay` updates its state slot, but overlay rendering
+is still under development. `reloadShaders` compiles all scene passes before swapping
 the live set; a failure keeps the prior valid set and reports `ErrorEvent`.
 
 `StateSnapshot` includes revision, A/B deck scene/effect/modulation state,
-crossfader, blackout, panic dim, scene catalog, audio sources/levels, cue
+crossfader, four `masterEffects` amounts, blackout, panic dim, scene catalog, audio sources/levels, cue
 presence, performance tier/fps, and fixed Spout output format. `SignalFrame`
 contains transient, spectrum, beat and performance values. Unsupported,
 malformed, or overlong input is rejected. This is a local UI protocol, not an

@@ -10,6 +10,10 @@ PrismBurst. PrismBurst and its launchers are deliberately untouched. The
 [implementation status](docs/STATUS.md) distinguishes proven work from pending
 venue tests and planned features. See the dated [validation record](docs/VALIDATION.md)
 for exact build, GPU, IPC and device evidence.
+For a controlled, not-yet-show-cleared Resolume teaser, see the
+[weekend operator runbook](docs/SHOW_TEASER.md).
+The [visual-direction notes](docs/VISUAL_DIRECTION.md) record how the
+operator's reference clips informed original scenes without bundling footage.
 
 ## Build on Windows
 
@@ -57,7 +61,7 @@ processes and verifies output survives a hard Control exit.
 - `native/engine`: WASAPI/miniaudio capture, D3D11 scene/deck rendering, Spout
   sender and versioned named-pipe IPC.
 - `native/spike`: independent D3D11→Spout sender/receiver proof.
-- `assets/scenes` and `assets/shaders`: twelve original scene manifests and HLSL assets.
+- `assets/scenes` and `assets/shaders`: sixteen original scene manifests and HLSL assets.
 - `control`: local React/TypeScript UI and WebView2 host.
 - `docs`: contracts, validation and honest feature status.
 

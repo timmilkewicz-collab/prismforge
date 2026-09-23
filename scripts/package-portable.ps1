@@ -21,6 +21,10 @@ $frontend = Join-Path $repository 'control\ui\dist\index.html'
 if (-not (Test-Path -LiteralPath $frontend -PathType Leaf)) {
     throw 'Control frontend is not built. Run control\build.ps1 first.'
 }
+$teaserGuide = Join-Path $repository 'docs\SHOW_TEASER.md'
+if (-not (Test-Path -LiteralPath $teaserGuide -PathType Leaf)) {
+    throw "Show teaser guide is missing: $teaserGuide"
+}
 
 if (-not $OutputDirectory) {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -39,8 +43,13 @@ Copy-Item -LiteralPath $engine -Destination $destination
 Copy-Item -LiteralPath $launcher -Destination $destination
 Copy-Item -LiteralPath $assets -Destination $destination -Recurse
 Copy-Item -LiteralPath (Join-Path $repository 'README.md') -Destination $destination
+$packageDocs = Join-Path $destination 'docs'
+New-Item -ItemType Directory -Path $packageDocs | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $repository 'docs') -Filter '*.md' -File |
+    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $packageDocs }
 Copy-Item -LiteralPath (Join-Path $repository 'docs\STATUS.md') `
     -Destination (Join-Path $destination 'STATUS.md')
+Copy-Item -LiteralPath $teaserGuide -Destination (Join-Path $destination 'SHOW_TEASER.md')
 
 $hashes = Get-ChildItem -LiteralPath $destination -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |

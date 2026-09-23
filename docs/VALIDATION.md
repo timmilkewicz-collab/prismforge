@@ -87,3 +87,104 @@ no installed PrismBurst files, launchers or shortcuts were changed.
 
 The separate installed PrismBurst runtime remains the fallback until live
 acceptance, rollback packaging and hash checks are complete.
+
+## Weekend-teaser candidate checks — later on 2026-09-22
+
+- The scene catalog expanded to 14 original shaders. All 56 shader/tier
+  combinations compiled with `/WX`; Release native build and 7/7 CTests
+  passed. The Control UI build and 6/6 Vitest checks passed; 29/29 .NET
+  protocol/origin tests passed after adding `setMasterEffect` validation.
+- An IPC smoke against the rebuilt Engine passed for the new Hex Vortex and
+  Ferrofluid Reactor IDs, all four master-effect snapshot values, reconnect,
+  OSC and the fixed 1080p sender. It enumerated 20 audio sources but did not
+  open a physical input or use music.
+- An independent RTX Spout pixel probe saw distinct output for both new
+  scenes and all four master performance controls. It also passed the four
+  pre-existing deck-effect differences, four fixed-output quality tiers,
+  safety 30 fps gate, panic dim, blackout and hot-reload rollback. The probe
+  now publishes only as `PrismForge.EffectProbe` so it cannot take the live
+  sender name; this change was validated after a prior same-name probe had
+  been run while Arena was open.
+- The first visual pass in Arena displayed correctly but was judged too
+  sparse/dim: thin hex outlines and a mostly empty ferrofluid ring. Both
+  shaders were reworked with broad surfaces and denser motion. After a rapid
+  sender restart, Arena showed a Spout "Cannot create DirectX/OpenGL interop"
+  warning and temporarily became unresponsive. Only the test-owned Engine
+  was stopped; Arena recovered on its own without being closed or restarted,
+  preserving the unsaved composition. The fault's cause is not established.
+- A separate new portable alpha, `dist/PrismForge-alpha-20260922-200202`,
+  verified all 36 SHA-256 entries, Launcher layout, packaged IPC smoke and
+  UI-crash survival. Its Engine then reconnected to the existing Arena session
+  and displayed both second-pass portal scenes in the Output Monitor/Display.
+  A concurrent independent receiver observed 600 fresh 1920×1080 BGRA8
+  frames with 49 changing samples in ten seconds. Arena remained responsive.
+  This is a short visual/reconnect check, not a one-hour soak; Arena's output
+  FPS, real audio response, venue flash risk and controller behavior remain
+  unmeasured. The transient interop fault still blocks show clearance.
+
+## Operator-media art pass — 2026-09-22 evening
+
+- Inspected four operator-supplied Resolume clips as visual references only:
+  `164683 (Original).mp4`, `BC19_1.mov`, `BC20_1.mov`, and `BC6_1.mov`.
+  Originals were not edited, copied into the repository, or packaged. The
+  original new scenes Shardwell and Neon Orbs emphasize contrasting dense
+  faceted debris and sparse glossy emissive forms; the existing portal looks
+  were retained as separate directions.
+- Source now contains 16 registered scenes. All 64 HLSL quality variants
+  compiled with warnings treated as errors. The runtime now compiles and
+  selects tier-specific scene shaders, rather than merely changing internal
+  render resolution. Release build, 7/7 CTests, 29/29 .NET tests, 6/6 UI tests,
+  and IPC smoke for all four recent scene IDs passed.
+- The isolated RTX 4070 Spout pixel probe received distinct frames for Hex
+  Vortex, Ferrofluid Reactor, Shardwell and Neon Orbs; checked all deck effects
+  and performance macros, stable 1920×1080 BGRA8 output across quality tiers,
+  the 30 fps safety gate, panic dim, blackout, and invalid/valid hot reload.
+  It now paces GPU readback so a prior scene frame cannot falsely pass as the
+  current one.
+- The built Engine displayed all four recent scenes in the still-unsaved Arena
+  composition. A live QA pass found the first Shardwell and Neon Orbs variants
+  too small/dim; both were retuned and hot-reloaded. Arena then displayed
+  larger readable faceted blocks, brighter glossy forms, and a blended scene
+  with conservative Motion/Warp/Trails/Color. Two 30-second independent Spout
+  probes during this session counted 1,800 and 1,798 fresh frames respectively,
+  with unchanged 1920×1080 BGRA8 format. Engine telemetry held tier 0 near
+  60 fps. Arena remained responsive; its own output FPS was not measured.
+- The timed global color step in Hex Vortex and the renderer's one-hour shader
+  time wrap were removed after code review. This reduces obvious discontinuity
+  risks but is **not** a measured flash-safety clearance. Audio was disabled,
+  there was no venue preview, and the earlier Arena Spout interop warning is
+  still not root-caused. The retuned scenes are a development candidate, not
+  approved show output.
+- A new portable candidate at `dist/PrismForge-alpha-20260922-205129` was
+  created after the final scene retunes. All 46 packaged SHA-256 entries
+  verified, Launcher layout returned exit 0, packaged IPC smoke passed for
+  all four recent scenes, and packaged Control-crash survival passed. The
+  exact packaged Engine and Control were then started with audio/persistence
+  disabled; Arena reconnected and displayed Shardwell. A 10-second receiver
+  probe of that packaged sender counted 601 fresh 1920×1080 BGRA8 frames and
+  49 changed spatial-grid samples. The earlier center-only probe had falsely
+  failed Shardwell because its central well is deliberately black; the grid
+  probe fixed that test limitation. The preview Engine is bounded to 900
+  seconds and is not a show deployment.
+- A subsequent probe review found that comparison against only the first
+  frame could pass one early change followed by a freeze. The receiver now
+  compares adjacent grid samples and, for runs of at least six seconds,
+  requires changes in each third. Against the packaged live sender, a
+  ten-second check passed with 601 fresh frames and change counts of
+  16/17/16 across the three windows. This remains sender continuity evidence,
+  not Arena output-FPS or flash-risk evidence.
+- A mixed-version review found that an earlier Engine accepted master-effect
+  commands without rendering the new macros. Control now treats absence of a
+  four-value `masterEffects` field in each StateSnapshot as unsupported,
+  clears the displayed macro values, and disables their controls. A UI test
+  covers a transition from a current to a legacy snapshot. Exact package
+  Engine-path verification remains a separate preflight gate.
+- Final package candidate `dist/PrismForge-alpha-20260922-210828` passed all
+  46 SHA-256 manifest checks, Launcher layout exit 0, exact packaged Engine
+  IPC smoke (four scenes, macros, OSC, reconnect, 20 enumerated audio sources)
+  and packaged Control-crash survival. No operator video files were bundled.
+  The first IPC smoke attempt timed out at its old eight-second startup
+  deadline while the Engine compiled 64 shader variants; after increasing
+  the test's bounded cold-start deadline to 30 seconds, the same package
+  passed. This does not prove startup under eight seconds, physical audio,
+  Arena output FPS, or show readiness.

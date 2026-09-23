@@ -17,7 +17,7 @@ class SpoutRender {
   static constexpr unsigned kOutputWidth = 1920;
   static constexpr unsigned kOutputHeight = 1080;
 
-  SpoutRender();
+  explicit SpoutRender(std::string senderName = "PrismForge");
   ~SpoutRender();
   SpoutRender(const SpoutRender&) = delete;
   SpoutRender& operator=(const SpoutRender&) = delete;
@@ -35,6 +35,7 @@ class SpoutRender {
 
  private:
   struct Impl;
+  std::string senderName_;
   std::unique_ptr<Impl> impl_;
 };
 

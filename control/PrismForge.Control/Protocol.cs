@@ -35,6 +35,7 @@ public static class ProtocolCodec
         "setBlackout",
         "setPanicDim",
         "setEffect",
+        "setMasterEffect",
         "setModulation",
         "saveCue",
         "recallCue",
@@ -151,6 +152,10 @@ public static class ProtocolCodec
             case "setEffect":
                 RequiredDeck(payload);
                 RequiredInteger(payload, "effectIndex", 0, int.MaxValue);
+                RequiredNumber(payload, "amount", 0, 1);
+                return;
+            case "setMasterEffect":
+                RequiredInteger(payload, "index", 0, 3);
                 RequiredNumber(payload, "amount", 0, 1);
                 return;
             case "setModulation":

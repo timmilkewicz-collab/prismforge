@@ -19,6 +19,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -59,8 +60,9 @@ bool copy_shaders_for_probe(const std::filesystem::path& source,
     }
     result.copiedFiles.push_back(copy);
   }
-  if (result.copiedFiles.size() != 12) {
-    error = "Expected exactly 12 scene shaders for the hot-reload probe";
+  if (result.copiedFiles.size() != kSceneIds.size()) {
+    error = "Expected exactly " + std::to_string(kSceneIds.size()) +
+            " scene shaders for the hot-reload probe";
     return false;
   }
   return true;
@@ -90,8 +92,12 @@ bool create_receiver_device(ComPtr<ID3D11Device>& device) {
 }
 
 bool receive_new_frame(spoutDX& receiver) {
-  for (int retry = 0; retry < 200; ++retry) {
-    if (receiver.ReceiveTexture() && receiver.IsConnected() &&
+  for (int retry = 0; retry < 500; ++retry) {
+    const bool received = receiver.ReceiveTexture();
+    // Spout pauses copies while its sender-update flag is set; clear that
+    // flag before trusting IsFrameNew or the previous texture can look new.
+    if (receiver.IsUpdated()) continue;
+    if (received && receiver.IsConnected() &&
         receiver.IsFrameNew() && receiver.GetSenderTexture()) return true;
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
@@ -162,11 +168,20 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
   signal.bass = 0.4f;
   signal.mids = 0.3f;
   signal.highs = 0.2f;
-  if (!renderer.Render(show, signal, quality, seconds, error))
-    return false;
-  if (!receive_new_frame(receiver)) {
-    error = "Receiver did not observe a new Spout frame";
-    return false;
+  // Shared D3D readback can lag several Spout frame counters on this driver,
+  // especially immediately after resizing. Settle a same-time frame train
+  // before sampling; the 30 fps gate is checked separately below.
+  const unsigned frames = quality.targetFps > 30 ? 16u : 1u;
+  for (unsigned frame = 0; frame < frames; ++frame) {
+    if (!renderer.Render(show, signal, quality, seconds, error)) return false;
+    // Pace the receiver like a live 60 Hz consumer; a tight CPU loop can run
+    // far ahead of queued sender GPU work and sample the prior effect/scene.
+    if (quality.targetFps > 30)
+      std::this_thread::sleep_for(std::chrono::milliseconds(17));
+    if (!receive_new_frame(receiver)) {
+      error = "Receiver did not observe a new Spout frame";
+      return false;
+    }
   }
   if (!hash_received_frame(receiver, device, context, hash,
                            average_luma, maximum_rgb)) {
@@ -183,7 +198,7 @@ int main(int argc, char** argv) {
     std::cerr << "Usage: PrismForge.EffectProbe <assets/shaders directory>\n";
     return 64;
   }
-  SpoutRender renderer;
+  SpoutRender renderer("PrismForge.EffectProbe");
   std::string error;
   const std::filesystem::path source_shaders(argv[1]);
   TemporaryShaderDirectory copied_shaders;
@@ -203,7 +218,7 @@ int main(int argc, char** argv) {
   ComPtr<ID3D11DeviceContext> receiver_context;
   receiver_device->GetImmediateContext(&receiver_context);
   spoutDX receiver;
-  receiver.SetReceiverName("PrismForge");
+  receiver.SetReceiverName("PrismForge.EffectProbe");
   if (!receiver.OpenDirectX11(receiver_device.Get())) {
     std::cerr << "Could not open Spout receiver\n";
     return 1;
@@ -223,6 +238,7 @@ int main(int argc, char** argv) {
   constexpr std::array<const char*, 4> names = {
       "Bloom", "Feedback", "Kaleidoscope", "Pixelate"};
   unsigned unchanged = 0;
+  std::uint64_t last_effect_hash = baseline;
   for (unsigned index = 0; index < names.size(); ++index) {
     show.decks[0].effects = {};
     if (index == 1) {
@@ -243,8 +259,46 @@ int main(int argc, char** argv) {
     std::cout << names[index] << '=' << changed
               << " differs=" << (changed != baseline) << '\n';
     if (changed == baseline) ++unchanged;
+    last_effect_hash = changed;
   }
   show.decks[0].effects = {};
+  struct SceneExpectation {
+    std::string_view id;
+    double minimumLuma;
+    std::uint8_t minimumPeak;
+  };
+  constexpr std::array<SceneExpectation, 4> new_scenes = {{{
+      "hex-vortex", 0.07, 80},
+      {"ferrofluid-reactor", 0.07, 80},
+      {"shardwell", 0.01, 70},
+      {"neon-orbs", 0.003, 70},
+  }};
+  std::array<std::uint64_t, new_scenes.size()> scene_hashes{};
+  std::uint64_t previous_scene_hash = last_effect_hash;
+  for (unsigned index = 0; index < new_scenes.size(); ++index) {
+    show.decks[0].sceneId = std::string(new_scenes[index].id);
+    double scene_luma = 0.0;
+    std::uint8_t scene_maximum = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, 2.0,
+                         scene_hashes[index], error, {1.0f, 60},
+                         &scene_luma, &scene_maximum)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    std::cout << new_scenes[index].id << " hash=" << scene_hashes[index]
+              << " luma=" << scene_luma
+              << " max_rgb=" << static_cast<unsigned>(scene_maximum) << '\n';
+    if (scene_luma < new_scenes[index].minimumLuma ||
+        scene_maximum < new_scenes[index].minimumPeak ||
+        scene_hashes[index] == previous_scene_hash) {
+      std::cerr << "New scene did not produce a full, distinct received image\n";
+      return 3;
+    }
+    previous_scene_hash = scene_hashes[index];
+  }
+  show.decks[0].sceneId = "prism-atrium";
+
   constexpr std::array<QualityTier, 4> tiers = {{
       {1.0f, 60}, {0.75f, 60}, {0.66f, 60}, {2.0f / 3.0f, 30}}};
   for (unsigned index = 0; index < tiers.size(); ++index) {
@@ -361,6 +415,84 @@ int main(int argc, char** argv) {
     return 3;
   }
   std::cout << "valid_reload_recovered=true\n";
+
+  // Same-time A/B after a forward warmup: the reverse timestamp holds the
+  // macro smoothing state while the scene shader receives the baseline time.
+  // Test Motion last because its integrated scene clock intentionally persists.
+  constexpr std::array<std::pair<unsigned, const char*>, 4> macros = {{
+      {1, "Warp"}, {2, "Trails"}, {3, "Color"}, {0, "Motion"}}};
+  for (unsigned step = 0; step < macros.size(); ++step) {
+    show.masterEffects = {};
+    const double baseline_time = 31.0 + step * 10.0;
+    for (unsigned settle = 0; settle < 3; ++settle) {
+      std::uint64_t ignored = 0;
+      if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                           receiver_context.Get(), show,
+                           baseline_time - 0.75 + settle * 0.25,
+                           ignored, error)) {
+        std::cerr << error << '\n';
+        return 3;
+      }
+    }
+    std::uint64_t neutral_hash = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, baseline_time,
+                         neutral_hash, error)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    show.masterEffects[macros[step].first] = 1.0f;
+    std::uint64_t warm_hash = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, baseline_time + 0.25,
+                         warm_hash, error)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    std::uint64_t macro_hash = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, baseline_time,
+                         macro_hash, error)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = macro_hash != neutral_hash;
+    std::cout << "macro_" << macros[step].second << "=" << macro_hash
+              << " differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+
+  // Full deck Feedback plus master Trails must not replace every current
+  // pixel with fading history. Exercise the combination through 60 rendered
+  // frames (20 probe calls, three publications each) and retain visible light.
+  show.masterEffects = {};
+  show.decks[0].effects = {};
+  show.decks[0].sceneId = "ferrofluid-reactor";
+  double neutral_luma = 0.0;
+  std::uint64_t neutral_hash = 0;
+  if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                       receiver_context.Get(), show, 70.0, neutral_hash,
+                       error, {1.0f, 60}, &neutral_luma)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  show.decks[0].effects[1] = 1.0f;
+  show.masterEffects[2] = 1.0f;
+  double combined_luma = 0.0;
+  for (unsigned frame = 0; frame < 20; ++frame) {
+    std::uint64_t combined_hash = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, 71.0 + frame / 60.0,
+                         combined_hash, error, {1.0f, 60},
+                         &combined_luma)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+  }
+  std::cout << "feedback_trails_luma=" << combined_luma
+            << " neutral_luma=" << neutral_luma << '\n';
+  if (!(combined_luma > neutral_luma * 0.10)) return 3;
+
   receiver.ReleaseReceiver();
   receiver.CloseDirectX11();
   renderer.Shutdown();

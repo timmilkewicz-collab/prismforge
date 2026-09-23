@@ -16,20 +16,23 @@
 #include <iterator>
 #include <limits>
 #include <string_view>
+#include <utility>
 
 namespace prismforge {
 namespace {
 
 using Microsoft::WRL::ComPtr;
 constexpr DXGI_FORMAT kPixelFormat = DXGI_FORMAT_B8G8R8A8_UNORM;
-constexpr std::string_view kSenderName = "PrismForge";
+constexpr unsigned kQualityTierCount = 4;
+constexpr std::array<const char*, kQualityTierCount> kQualityTierDefines = {
+    "0", "1", "2", "3"};
 
 struct SceneSpec {
   std::string_view id;
   std::string_view file;
 };
 
-constexpr std::array<SceneSpec, 12> kScenes = {{
+constexpr std::array<SceneSpec, 16> kScenes = {{
     {"ink-tide", "InkTide.hlsl"},
     {"prism-atrium", "PrismAtrium.hlsl"},
     {"chrome-flock", "ChromeFlock.hlsl"},
@@ -42,6 +45,10 @@ constexpr std::array<SceneSpec, 12> kScenes = {{
     {"fold-temple", "FoldTemple.hlsl"},
     {"dream-grove", "DreamGrove.hlsl"},
     {"living-point-cloud", "LivingPointCloud.hlsl"},
+    {"hex-vortex", "HexVortex.hlsl"},
+    {"ferrofluid-reactor", "FerrofluidReactor.hlsl"},
+    {"shardwell", "Shardwell.hlsl"},
+    {"neon-orbs", "NeonOrbs.hlsl"},
 }};
 
 constexpr char kFullscreenShader[] = R"hlsl(
@@ -84,9 +91,30 @@ cbuffer EffectInputs : register(b0) {
   float2 texel;
   float historyReady;
   float pad;
+  float warp;
+  float trails;
+  float colorEnergy;
+  float motionTime;
+  float bass;
+  float3 pad2;
 };
 struct PSInput { float4 position : SV_POSITION; float2 uv : TEXCOORD0; };
+float2 rotate2D(float2 p, float angle) {
+  float s = sin(angle);
+  float c = cos(angle);
+  return float2(c * p.x - s * p.y, s * p.x + c * p.y);
+}
 float2 effect_uv(float2 uv) {
+  if (warp > 0.001) {
+    float2 centered = uv - 0.5;
+    float radius = length(centered);
+    float twist = warp * (0.16 + 0.05 * bass) *
+        sin(radius * 18.0 - motionTime * 1.8);
+    float2 flow = float2(
+        sin(centered.y * 12.0 + motionTime * 1.4),
+        cos(centered.x * 10.0 - motionTime * 1.1));
+    uv = 0.5 + rotate2D(centered, twist) + flow * (0.025 * warp);
+  }
   if (kaleidoscope > 0.001) {
     float aspect = texel.y / max(texel.x, 0.000001);
     float2 p = (uv - 0.5) * float2(aspect, 1.0);
@@ -119,9 +147,29 @@ float4 main(PSInput input) : SV_TARGET {
                   bright(uv - float2(0.0, spread.y));
     color += glow * (0.34 * saturate(bloom));
   }
-  if (feedback > 0.001 && historyReady > 0.5) {
-    float3 previous = historyTexture.Sample(linearSampler, input.uv).rgb;
-    color = lerp(color, previous, saturate(feedback) * 0.88);
+  if ((feedback > 0.001 || trails > 0.001) && historyReady > 0.5) {
+    float2 historyUv = input.uv;
+    if (trails > 0.001) {
+      float angle = trails * (0.014 + 0.010 * sin(motionTime * 0.47));
+      historyUv = saturate(0.5 + rotate2D(input.uv - 0.5, angle) *
+          (1.0 - 0.021 * trails));
+    }
+    float3 previous = historyTexture.Sample(linearSampler, historyUv).rgb;
+    // Always retain some current scene contribution, even when both controls
+    // are at full strength; otherwise history can decay the image to black.
+    float amount = min(0.94, saturate(feedback) * 0.88 + trails * 0.76);
+    // Multiplicative decay keeps the feedback history from accumulating light.
+    color = lerp(color, previous * (1.0 - 0.11 * trails), amount);
+  }
+  if (colorEnergy > 0.001) {
+    float3 rotated = lerp(color.gbr, color.brg,
+                          0.5 + 0.5 * sin(motionTime * 0.55));
+    color = lerp(color, rotated, 0.38 * colorEnergy);
+    // Lift dark detail without a hard global brightness pulse.
+    color = lerp(color, sqrt(saturate(color)), 0.38 * colorEnergy);
+    float luma = dot(color, float3(0.2126, 0.7152, 0.0722));
+    color = luma + (color - luma) * (1.0 + 0.70 * colorEnergy);
+    color = (color - 0.11) * (1.0 + 0.18 * colorEnergy) + 0.11;
   }
   return float4(saturate(color), 1.0);
 }
@@ -145,8 +193,10 @@ static_assert(sizeof(CompositeInputs) == 16);
 struct alignas(16) EffectInputs {
   float bloom, feedback, kaleidoscope, pixelate;
   float texelX, texelY, historyReady, pad;
+  float warp, trails, colorEnergy, motionTime;
+  float bass, pad2, pad3, pad4;
 };
-static_assert(sizeof(EffectInputs) == 32);
+static_assert(sizeof(EffectInputs) == 64);
 
 float finite_unit(float value) {
   return std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
@@ -166,10 +216,11 @@ std::string hr_text(std::string_view operation, HRESULT hr) {
 
 bool compile_hlsl(std::string_view source, const std::string& label,
                   const char* entry, const char* profile,
-                  ComPtr<ID3DBlob>& bytecode, std::string& error) {
+                  ComPtr<ID3DBlob>& bytecode, std::string& error,
+                  const D3D_SHADER_MACRO* macros = nullptr) {
   ComPtr<ID3DBlob> compiler_errors;
   const HRESULT hr = D3DCompile(source.data(), source.size(), label.c_str(),
-                                nullptr, nullptr, entry, profile,
+                                macros, nullptr, entry, profile,
                                 D3DCOMPILE_ENABLE_STRICTNESS, 0,
                                 &bytecode, &compiler_errors);
   if (FAILED(hr)) {
@@ -243,6 +294,13 @@ unsigned scene_index(std::string_view id) {
   return 0;  // A known safe scene for IDs whose shader is not yet shipped.
 }
 
+unsigned quality_tier_index(const QualityTier& quality) {
+  if (quality.targetFps <= 30) return 3;
+  if (quality.internalScale <= 0.70f) return 2;
+  if (quality.internalScale <= 0.875f) return 1;
+  return 0;
+}
+
 }  // namespace
 
 struct SpoutRender::Impl {
@@ -252,7 +310,8 @@ struct SpoutRender::Impl {
   ComPtr<ID3D11VertexShader> vertexShader;
   ComPtr<ID3D11PixelShader> compositeShader;
   ComPtr<ID3D11PixelShader> effectShader;
-  std::array<ComPtr<ID3D11PixelShader>, kScenes.size()> sceneShaders;
+  using SceneVariants = std::array<ComPtr<ID3D11PixelShader>, kQualityTierCount>;
+  std::array<SceneVariants, kScenes.size()> sceneShaders;
   ComPtr<ID3D11Buffer> sceneConstants;
   ComPtr<ID3D11Buffer> compositeConstants;
   ComPtr<ID3D11Buffer> effectConstants;
@@ -265,11 +324,15 @@ struct SpoutRender::Impl {
   UINT internalWidth = 0;
   UINT internalHeight = 0;
   double lastPublishedSeconds = -std::numeric_limits<double>::infinity();
+  double lastSceneSeconds = std::numeric_limits<double>::quiet_NaN();
+  double sceneClock = 0.0;
+  bool motionEverActive = false;
+  std::array<float, 4> smoothedMacros{};
   spoutDX sender;
   bool senderOpen = false;
 
   bool BuildSceneShaders(std::string& error) {
-    std::array<ComPtr<ID3D11PixelShader>, kScenes.size()> candidates;
+    std::array<SceneVariants, kScenes.size()> candidates;
     for (unsigned i = 0; i < kScenes.size(); ++i) {
       const auto file = shaderDirectory / kScenes[i].file;
       std::ifstream stream(file, std::ios::binary);
@@ -279,17 +342,24 @@ struct SpoutRender::Impl {
       }
       const std::string source((std::istreambuf_iterator<char>(stream)),
                                std::istreambuf_iterator<char>());
-      ComPtr<ID3DBlob> bytecode;
-      if (!compile_hlsl(source, file.string(), "main", "ps_5_0", bytecode,
-                        error)) return false;
-      const HRESULT hr = device->CreatePixelShader(bytecode->GetBufferPointer(),
-                                                   bytecode->GetBufferSize(),
-                                                   nullptr, &candidates[i]);
-      if (FAILED(hr)) {
-        error = hr_text("CreatePixelShader " + file.string(), hr);
-        return false;
+      for (unsigned tier = 0; tier < kQualityTierCount; ++tier) {
+        const D3D_SHADER_MACRO macros[] = {
+            {"QUALITY_TIER", kQualityTierDefines[tier]}, {nullptr, nullptr}};
+        const std::string label = file.string() + " tier " + std::to_string(tier);
+        ComPtr<ID3DBlob> bytecode;
+        if (!compile_hlsl(source, label, "main", "ps_5_0", bytecode,
+                          error, macros)) return false;
+        const HRESULT hr = device->CreatePixelShader(
+            bytecode->GetBufferPointer(), bytecode->GetBufferSize(), nullptr,
+            &candidates[i][tier]);
+        if (FAILED(hr)) {
+          error = hr_text("CreatePixelShader " + label, hr);
+          return false;
+        }
       }
     }
+    // Commit the complete scene/tier set only after every candidate succeeds.
+    // A failed hot reload leaves the last valid variants on air.
     sceneShaders = std::move(candidates);
     return true;
   }
@@ -318,13 +388,18 @@ struct SpoutRender::Impl {
   }
 };
 
-SpoutRender::SpoutRender() = default;
+SpoutRender::SpoutRender(std::string senderName)
+    : senderName_(std::move(senderName)) {}
 SpoutRender::~SpoutRender() { Shutdown(); }
 
 bool SpoutRender::Initialize(const std::filesystem::path& shaderDirectory,
                              std::string& error) {
   Shutdown();
   error.clear();
+  if (senderName_.empty()) {
+    error = "Spout sender name is empty";
+    return false;
+  }
   auto next = std::make_unique<Impl>();
   next->shaderDirectory = shaderDirectory;
   ComPtr<IDXGIAdapter1> adapter;
@@ -391,7 +466,7 @@ bool SpoutRender::Initialize(const std::filesystem::path& shaderDirectory,
                       next->output, error)) return false;
 
   if (!next->sender.OpenDirectX11(next->device.Get()) ||
-      !next->sender.SetSenderName(kSenderName.data())) {
+      !next->sender.SetSenderName(senderName_.c_str())) {
     error = "Spout sender initialization failed";
     return false;
   }
@@ -420,6 +495,29 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
   const auto height = static_cast<UINT>(std::lround(kOutputHeight * scale));
   if (!render.ResizeDecks(width, height, error)) return false;
 
+  // Speed is integrated rather than multiplying elapsed time. Moving the
+  // Motion control therefore changes velocity without jumping scene phase.
+  const double deltaSeconds = std::isfinite(render.lastSceneSeconds)
+      ? std::max(0.0, seconds - render.lastSceneSeconds) : 0.0;
+  if (!std::isfinite(render.lastSceneSeconds)) render.sceneClock = seconds;
+  render.lastSceneSeconds = seconds;
+  const float smoothing = static_cast<float>(1.0 -
+      std::exp(-std::min(deltaSeconds, 0.25) * 8.0));
+  for (unsigned index = 0; index < render.smoothedMacros.size(); ++index) {
+    const float target = finite_unit(show.masterEffects[index]);
+    render.smoothedMacros[index] +=
+        (target - render.smoothedMacros[index]) * smoothing;
+  }
+  if (render.motionEverActive || show.masterEffects[0] > 0.0f ||
+      render.smoothedMacros[0] > 0.0f) {
+    render.motionEverActive = true;
+    render.sceneClock += deltaSeconds *
+        (1.0 + 4.0 * render.smoothedMacros[0]);
+  } else {
+    // Retain the established time value exactly when the macro is untouched.
+    render.sceneClock = seconds;
+  }
+
   render.context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
   render.context->VSSetShader(render.vertexShader.Get(), nullptr, 0);
   D3D11_VIEWPORT viewport{};
@@ -428,7 +526,10 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
   viewport.MaxDepth = 1.0f;
   render.context->RSSetViewports(1, &viewport);
 
-  const float time = static_cast<float>(std::fmod(std::max(seconds, 0.0), 3600.0));
+  // A timed modulo makes non-periodic scene shaders jump (and can flash the
+  // whole output). Preserve phase across long performances; gradual float
+  // precision loss is preferable to a hard one-hour discontinuity.
+  const float time = static_cast<float>(std::max(render.sceneClock, 0.0));
   for (unsigned deck = 0; deck < render.decks.size(); ++deck) {
     SceneInputs inputs{};
     inputs.time = time;
@@ -446,7 +547,8 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
     render.context->PSSetConstantBuffers(0, 1,
                                          render.sceneConstants.GetAddressOf());
     render.context->PSSetShader(
-        render.sceneShaders[scene_index(show.decks[deck].sceneId)].Get(),
+        render.sceneShaders[scene_index(show.decks[deck].sceneId)]
+                           [quality_tier_index(quality)].Get(),
         nullptr, 0);
     render.context->Draw(3, 0);
   }
@@ -464,6 +566,11 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
     effect.texelX = 1.0f / width;
     effect.texelY = 1.0f / height;
     effect.historyReady = render.historyValid[deck] ? 1.0f : 0.0f;
+    effect.warp = render.smoothedMacros[1];
+    effect.trails = render.smoothedMacros[2];
+    effect.colorEnergy = render.smoothedMacros[3];
+    effect.motionTime = time;
+    effect.bass = finite_unit(signal.bass);
     render.context->UpdateSubresource(render.effectConstants.Get(), 0, nullptr,
                                        &effect, 0, 0);
     render.context->OMSetRenderTargets(

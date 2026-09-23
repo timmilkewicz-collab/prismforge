@@ -13,6 +13,12 @@ import type {
 
 const clamp = (value: number, minimum = 0, maximum = 1) => Math.min(maximum, Math.max(minimum, value))
 const percentage = (value: number) => `${Math.round(clamp(value) * 100)}%`
+const masterMacros = [
+  { name: 'Motion', hint: 'Drive the scene' },
+  { name: 'Warp', hint: 'Bend the image' },
+  { name: 'Trails', hint: 'Build momentum' },
+  { name: 'Color', hint: 'Push the palette' },
+] as const
 
 function useThrottledCommand(intervalMs = 32) {
   const pending = useRef(new Map<string, { payload: Record<string, unknown>; timer: number }>())
@@ -151,14 +157,19 @@ function Meter({ label, value, peak = false, danger = false }: { label: string; 
 
 interface MasterPanelProps {
   online: boolean
+  masterEffectsAvailable: boolean
   crossfader: number
+  masterEffects: number[]
   blackout: boolean
   panicDim: boolean
   onCrossfader: (value: number) => void
+  onMasterEffect: (index: number, amount: number) => void
+  onMasterReset: () => void
   onSafety: (control: 'blackout' | 'panicDim', enabled: boolean) => void
 }
 
-function MasterPanel({ online, crossfader, blackout, panicDim, onCrossfader, onSafety }: MasterPanelProps) {
+function MasterPanel({ online, masterEffectsAvailable, crossfader, masterEffects, blackout, panicDim, onCrossfader,
+  onMasterEffect, onMasterReset, onSafety }: MasterPanelProps) {
   return (
     <section className="panel master-panel" aria-label="Master mixer">
       <div className="panel-heading centered">
@@ -195,6 +206,27 @@ function MasterPanel({ online, crossfader, blackout, panicDim, onCrossfader, onS
         <div className="crossfader-values">
           <span>{Math.round((1 - crossfader) * 100)}%</span>
           <span>{Math.round(crossfader * 100)}%</span>
+        </div>
+      </div>
+
+      <div className="performance-macros">
+        <div className="macro-heading">
+          <span>Performance macros</span>
+          <button type="button" disabled={!online || !masterEffectsAvailable || masterEffects.every((amount) => amount === 0)}
+            onClick={onMasterReset} title="Return all performance macros to neutral">RESET</button>
+        </div>
+        {!masterEffectsAvailable && <small className="macro-unavailable">Requires matching Engine</small>}
+        <div className="macro-list">
+          {masterMacros.map((macro, index) => (
+            <label className="macro-row" key={macro.name}>
+              <span className="macro-label"><b>{macro.name}</b><small>{macro.hint}</small></span>
+              <input type="range" min="0" max="1" step="0.005" value={clamp(masterEffects[index] ?? 0)}
+                disabled={!online || !masterEffectsAvailable}
+                onChange={(event) => onMasterEffect(index, Number(event.currentTarget.value))}
+                aria-label={`${macro.name} performance macro`} />
+              <output>{percentage(masterEffects[index] ?? 0)}</output>
+            </label>
+          ))}
         </div>
       </div>
 
@@ -317,6 +349,16 @@ export default function App() {
     sendThrottled('crossfader', { action: 'setCrossfader', value })
   }, [sendThrottled])
 
+  const onMasterEffect = useCallback((index: number, amount: number) => {
+    if (!online || !view.masterEffectsAvailable) return
+    dispatch({ type: 'optimistic-master-effect', index, amount })
+    sendThrottled(`master-${index}`, { action: 'setMasterEffect', index, amount })
+  }, [online, view.masterEffectsAvailable, sendThrottled])
+
+  const onMasterReset = useCallback(() => {
+    for (let index = 0; index < masterMacros.length; index += 1) onMasterEffect(index, 0)
+  }, [onMasterEffect])
+
   const onSafety = useCallback((control: 'blackout' | 'panicDim', enabled: boolean) => {
     dispatch({ type: 'optimistic-safety', control, enabled })
     sendCommand({ action: control === 'blackout' ? 'setBlackout' : 'setPanicDim', enabled })
@@ -364,8 +406,10 @@ export default function App() {
         <div className="mixer-grid">
           <DeckPanel deckId="A" deck={view.engine.decks.A} scenes={view.engine.sceneCatalog} online={online}
             onScene={onScene} onEffect={onEffect} />
-          <MasterPanel online={online} crossfader={view.engine.crossfader} blackout={view.engine.blackout}
-            panicDim={view.engine.panicDim} onCrossfader={onCrossfader} onSafety={onSafety} />
+          <MasterPanel online={online} masterEffectsAvailable={view.masterEffectsAvailable}
+            crossfader={view.engine.crossfader} masterEffects={view.engine.masterEffects}
+            blackout={view.engine.blackout} panicDim={view.engine.panicDim} onCrossfader={onCrossfader}
+            onMasterEffect={onMasterEffect} onMasterReset={onMasterReset} onSafety={onSafety} />
           <DeckPanel deckId="B" deck={view.engine.decks.B} scenes={view.engine.sceneCatalog} online={online}
             onScene={onScene} onEffect={onEffect} />
         </div>

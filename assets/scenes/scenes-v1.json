@@ -133,6 +133,50 @@
       "parameters": [],
       "capabilities": ["procedural", "audio-reactive"],
       "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "hex-vortex",
+      "name": "Hex Vortex",
+      "version": 1,
+      "shader": "assets/shaders/HexVortex.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "ferrofluid-reactor",
+      "name": "Ferrofluid Reactor",
+      "version": 1,
+      "shader": "assets/shaders/FerrofluidReactor.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "shardwell",
+      "name": "Shardwell",
+      "version": 1,
+      "shader": "assets/shaders/Shardwell.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "neon-orbs",
+      "name": "Neon Orbs",
+      "version": 1,
+      "shader": "assets/shaders/NeonOrbs.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
     }
   ]
 }
