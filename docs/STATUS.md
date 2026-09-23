@@ -45,10 +45,16 @@ that Resolume, an audio interface, or the installed live rig works.
   audio handoff, and rejected-autosave assertions. Twenty-three .NET control
   tests pass. A test-owned Control process was force-terminated while the
   Engine remained live, then a new IPC client read the 1080p sender state.
+- Resolume Arena 7.6 visibly received the packaged Engine's 1920x1080
+  `PrismForge` Spout output at checkpoints spanning 30 minutes 10 seconds. An
+  independent receiver ran concurrently for 1,800 seconds and passed with
+  107,997 fresh frames
+  (about 60 fps), 8,841 changed-pixel samples and fixed BGRA8 format. This
+  run had audio disabled; the probe does not measure Arena's output FPS.
 
 ## Not yet accepted for live use
 
-- Resolume reception and the 30-minute fixed-format smoke test.
+- Arena's own output FPS measurement and end-to-end 1080p60 proof.
 - One-hour two-deck, overlay, audio and controller soak.
 - Real FL Studio/system loopback, Maono/interface and room-PA validation.
 - Physical Launchpad S input/LED colors, coexistence and reconnect; generic

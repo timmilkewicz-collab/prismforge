@@ -57,11 +57,25 @@ no installed PrismBurst files, launchers or shortcuts were changed.
 - Control stayed alive offline, connected to a brief live Engine run, and
   returned to its disabled offline state after Engine exited. A second Control
   launch reused the single existing UI instance.
+- Resolume Arena 7.6 received the packaged Engine's `PrismForge` Spout sender
+  in a fresh 1920x1080 composition. Its Output Monitor and Display
+  showed changing Ink Tide frames at checkpoints from 2026-09-23 01:23:18 UTC
+  through 01:53:28 UTC (30 minutes 10 seconds). A separate receiver completed
+  a concurrent 1,800-second probe with exit code 0: 107,997 fresh frames
+  (about 60 fps), 8,841 changed-pixel samples, and fixed 1920x1080 BGRA8
+  format on the RTX 4070 Laptop GPU. Arena and Engine remained running with
+  stable working sets through the probe. The test Engine ran without audio or
+  persistence and was stopped afterward; Arena and the composition were left
+  open. All eight pre-existing `.avc` composition files matched their
+  pre-test hashes. A new composition file dated before the timed test appeared
+  and was preserved; its origin was not determined. The probe's cadence is
+  not a measurement of Arena's output FPS.
 
 ## Outstanding acceptance gates
 
-- Resolume Arena has not yet been confirmed as a receiver, nor has the
-  30-minute Spout gate or one-hour full live soak run.
+- Arena's own output FPS has not been measured, so end-to-end 1080p60 is not
+  yet proven. The one-hour two-deck/overlay/audio/controller live soak has not
+  run.
 - The hardened audio switch needs a supervised loopback/Maono/hot-unplug test;
   the default IPC smoke does not open a physical input.
 - No live FL Studio/music/PA, Kinect body, physical Launchpad S input/LED, or
