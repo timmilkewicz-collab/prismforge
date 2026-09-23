@@ -30,3 +30,28 @@ Likewise, direct video ingestion, a venue-safe profile, flash-risk monitoring
 and end-to-end Arena output-FPS proof remain future work. Do not describe the
 four reference clips as bundled content or these visual candidates as
 show-cleared.
+
+## NestDrop Classic benchmark (read-only metadata audit)
+
+The Start-menu shortcut resolves to the installed NestDrop Classic v23 under
+`Documents\NestDropClassic\NestDropV23`. Its MilkDrop2 library has 1,921 `.milk`
+presets and paired thumbnails across 11 families: Transition 4, Dancer 141,
+Drawing 296, Fractal 303, Geometric 204, Hypnotic 30, Particles 53,
+Reaction 510, Sparkle 135, Supernova 46 and Waveform 199. A separate
+`Redwhiteandbass.xml` profile configures one 1920×1080 Spout deck at 30 fps,
+30-second smooth transitions, beat threshold 28, and independent animation,
+zoom and rotation speeds. This audit inspected names, counts and configuration
+only; no NestDrop preset was launched, sampled, copied or embedded. Its actual
+on-screen appearance and performance were not verified in this pass.
+
+The next **original** PrismForge concepts should each expose a real performance
+dimension rather than add another automatic tunnel variation:
+
+1. Neon mirror architecture: live symmetry/order, panel topology, aperture
+   and line width, with local beat accents instead of whole-frame steps
+   (the BC20 and Geometric/Hypnotic direction).
+2. Recursive liquid-circuit field: selectable attractor, echo persistence,
+   bass-driven branch growth and gesture pan (Drawing/Fractal/Reaction).
+3. Volumetric crystal swarm: density, orbit radius and focus/depth, with audio
+   events redistributing silhouettes rather than flashing the frame
+   (Dancer/Particles/Supernova).
