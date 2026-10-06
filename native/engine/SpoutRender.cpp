@@ -196,16 +196,18 @@ float4 main(PSInput input) : SV_TARGET {
 }
 )hlsl";
 
-// SceneInputs matches the HLSL cbuffer b0 in assets/shaders. Older shaders
-// ignore the third register; Recursive Circuit uses it for bounded music
-// energy, a decaying hit, integrated flow, and an eased palette phrase.
+// SceneInputs matches the HLSL cbuffer b0 in assets/shaders. The first 64
+// bytes are the established shader ABI. Musical Recursive Circuit data is
+// appended so every existing scene keeps the exact same prefix.
 struct alignas(16) SceneInputs {
   float time, bass, mids, highs;
   float hit, width, height, unused0;
   float reactiveEnergy, reactivePulse, reactiveFlow, reactivePalette;
   std::array<float, 4> sceneParams{};
+  float musicalFlow, musicalDensity, musicalTopology, musicalPalette;
+  float musicalImpact, musicalRelease, musicalVariation, musicalEnabled;
 };
-static_assert(sizeof(SceneInputs) == 64);
+static_assert(sizeof(SceneInputs) == 96);
 
 struct alignas(16) CompositeInputs {
   float crossfader, gain, pad0, pad1;
@@ -223,6 +225,138 @@ static_assert(sizeof(EffectInputs) == 64);
 float finite_unit(float value) {
   return std::isfinite(value) ? std::clamp(value, 0.0f, 1.0f) : 0.0f;
 }
+
+float finite_signed_unit(float value) {
+  return std::isfinite(value) ? std::clamp(value, -1.0f, 1.0f) : 0.0f;
+}
+
+float wrap_unit(float value) {
+  if (!std::isfinite(value)) return 0.0f;
+  value -= std::floor(value);
+  return value < 0.0f ? value + 1.0f : value;
+}
+
+float event_unit(std::uint64_t value) {
+  // SplitMix64's finalizer gives the deterministic engine event ID another
+  // stable permutation without introducing renderer RNG state.
+  value ^= value >> 30;
+  value *= 0xbf58476d1ce4e5b9ULL;
+  value ^= value >> 27;
+  value *= 0x94d049bb133111ebULL;
+  value ^= value >> 31;
+  return static_cast<float>(value >> 40) / 16777215.0f;
+}
+
+struct RecursiveSceneFrame {
+  float flow = 0.0f;
+  float density = 0.0f;
+  float topology = 0.0f;
+  float palette = 0.0f;
+  float impact = 0.0f;
+  float release = 0.0f;
+  float variation = 0.0f;
+};
+
+// Scene-specific interpretation stays in the renderer. It integrates a
+// continuous flow clock and eases event-selected palette/topology variation, but
+// consumes only MusicalStateFrameV1 -- never raw bands or hit flags.
+class RecursiveSceneAdapter {
+ public:
+  void Reset() noexcept {
+    lastSeconds_ = std::numeric_limits<double>::quiet_NaN();
+    flow_ = 0.0;
+    palette_ = 0.0f;
+    paletteTarget_ = 0.0f;
+    variation_ = 0.0f;
+    variationTarget_ = 0.0f;
+    lastEventId_ = 0;
+    lastSourceSampleIndex_ = 0;
+  }
+
+  [[nodiscard]] RecursiveSceneFrame Advance(
+      const MusicalStateFrameV1& musical, double seconds) noexcept {
+    if (!std::isfinite(seconds)) return {};
+    if (musical.sourceSampleIndex < lastSourceSampleIndex_ ||
+        (std::isfinite(lastSeconds_) && seconds < lastSeconds_)) {
+      Reset();
+    }
+    const double deltaSeconds = std::isfinite(lastSeconds_)
+        ? std::clamp(seconds - lastSeconds_, 0.0, 0.25) : 0.0;
+    lastSeconds_ = seconds;
+    lastSourceSampleIndex_ = musical.sourceSampleIndex;
+
+    const float immediate = finite_unit(musical.immediateEnergy);
+    const float onset = finite_unit(musical.onsetEnvelope);
+    const float accent = finite_unit(musical.accentEnvelope);
+    const float groove = finite_unit(musical.grooveEnergy);
+    const float sustained = finite_unit(musical.sustainedEnergy);
+    const float trend = finite_signed_unit(musical.energyTrend);
+    const float calm = finite_unit(musical.calm);
+    const float building = finite_unit(musical.building);
+    const float driving = finite_unit(musical.driving);
+    const float peak = finite_unit(musical.peak);
+    const float release = finite_unit(musical.release);
+    const float slowAge = finite_unit(musical.slowStateAge);
+
+    if (musical.eventId != 0 && musical.eventId != lastEventId_) {
+      variationTarget_ = event_unit(musical.eventId);
+      paletteTarget_ = wrap_unit(
+          palette_ + 0.17f + 0.46f * variationTarget_);
+      lastEventId_ = musical.eventId;
+    }
+
+    const float eventResponse = static_cast<float>(1.0 - std::exp(
+        -deltaSeconds * (1.4 + 2.2 * building + 3.0 * peak)));
+    variation_ += (variationTarget_ - variation_) * eventResponse;
+    float paletteDelta = paletteTarget_ - palette_;
+    if (paletteDelta > 0.5f) paletteDelta -= 1.0f;
+    if (paletteDelta < -0.5f) paletteDelta += 1.0f;
+    palette_ = wrap_unit(palette_ + paletteDelta * eventResponse);
+
+    const float density = finite_unit(
+        0.04f + 0.18f * immediate + 0.32f * groove +
+        0.30f * sustained + 0.18f * building + 0.24f * driving +
+        0.28f * peak - 0.22f * calm);
+    const float topology = finite_unit(
+        0.08f + 0.18f * groove + 0.42f * building +
+        0.30f * driving + 0.44f * peak + 0.13f * variation_ -
+        0.12f * calm + 0.08f * std::max(trend, 0.0f));
+    const float impact = finite_unit(
+        0.72f * onset + 0.42f * accent + 0.34f * peak);
+    const float velocity = std::max(0.025f,
+        (0.10f + 0.72f * groove + 0.34f * sustained +
+         0.34f * building + 0.62f * driving + 0.86f * peak +
+         0.20f * release) * (1.0f - 0.58f * calm));
+    // Do not modulo a visual phase that the shader multiplies by several
+    // non-commensurate frequencies. Wrapping would hard-cut the topology at
+    // the boundary during a long-running show. This mirrors the established
+    // renderer clock policy below: eventual float precision loss is safer
+    // than a deterministic whole-frame discontinuity.
+    flow_ += deltaSeconds * velocity;
+    if (!std::isfinite(flow_) || flow_ < 0.0) flow_ = 0.0;
+
+    RecursiveSceneFrame frame;
+    frame.flow = static_cast<float>(flow_);
+    frame.density = density;
+    frame.topology = topology;
+    frame.palette = wrap_unit(palette_ + 0.055f * building +
+                              0.11f * peak + 0.035f * slowAge);
+    frame.impact = impact;
+    frame.release = release;
+    frame.variation = finite_unit(variation_);
+    return frame;
+  }
+
+ private:
+  double lastSeconds_ = std::numeric_limits<double>::quiet_NaN();
+  double flow_ = 0.0;
+  float palette_ = 0.0f;
+  float paletteTarget_ = 0.0f;
+  float variation_ = 0.0f;
+  float variationTarget_ = 0.0f;
+  std::uint64_t lastEventId_ = 0;
+  std::uint64_t lastSourceSampleIndex_ = 0;
+};
 
 std::string hr_text(std::string_view operation, HRESULT hr) {
   constexpr char digits[] = "0123456789ABCDEF";
@@ -349,6 +483,7 @@ struct SpoutRender::Impl {
   double lastSceneSeconds = std::numeric_limits<double>::quiet_NaN();
   double sceneClock = 0.0;
   ReactiveMotion reactiveMotion;
+  RecursiveSceneAdapter recursiveScene;
   bool motionEverActive = false;
   std::array<float, 4> smoothedMacros{};
   spoutDX sender;
@@ -499,6 +634,8 @@ bool SpoutRender::Initialize(const std::filesystem::path& shaderDirectory,
 }
 
 bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
+                         const MusicalStateFrameV1& musicalState,
+                         bool useMusicalRecursiveAudio,
                          const QualityTier& quality, double seconds,
                          std::string& error) {
   error.clear();
@@ -509,6 +646,8 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
   // short onset must not disappear merely because it landed between 30 Hz
   // Spout frames.
   const ReactiveFrame reactive = render.reactiveMotion.Advance(signal, seconds);
+  const RecursiveSceneFrame recursiveMusical =
+      render.recursiveScene.Advance(musicalState, seconds);
   if (quality.targetFps > 0 && quality.targetFps <= 30 &&
       seconds >= render.lastPublishedSeconds &&
       seconds - render.lastPublishedSeconds < 1.0 / quality.targetFps) {
@@ -558,6 +697,8 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
   // precision loss is preferable to a hard one-hour discontinuity.
   const float time = static_cast<float>(std::max(render.sceneClock, 0.0));
   for (unsigned deck = 0; deck < render.decks.size(); ++deck) {
+    const bool musicalRecursive = useMusicalRecursiveAudio &&
+        show.decks[deck].sceneId == "recursive-circuit";
     SceneInputs inputs{};
     inputs.time = time;
     inputs.bass = finite_unit(signal.bass);
@@ -571,6 +712,16 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
     inputs.reactiveFlow = reactive.flow;
     inputs.reactivePalette = reactive.palette;
     inputs.sceneParams = show.decks[deck].sceneParams;
+    if (musicalRecursive) {
+      inputs.musicalFlow = recursiveMusical.flow;
+      inputs.musicalDensity = recursiveMusical.density;
+      inputs.musicalTopology = recursiveMusical.topology;
+      inputs.musicalPalette = recursiveMusical.palette;
+      inputs.musicalImpact = recursiveMusical.impact;
+      inputs.musicalRelease = recursiveMusical.release;
+      inputs.musicalVariation = recursiveMusical.variation;
+      inputs.musicalEnabled = 1.0f;
+    }
     render.context->UpdateSubresource(render.sceneConstants.Get(), 0, nullptr,
                                        &inputs, 0, 0);
     render.context->OMSetRenderTargets(1,
@@ -590,6 +741,8 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
   render.context->PSSetShader(render.effectShader.Get(), nullptr, 0);
   render.context->PSSetSamplers(0, 1, render.sampler.GetAddressOf());
   for (unsigned deck = 0; deck < render.decks.size(); ++deck) {
+    const bool musicalRecursive = useMusicalRecursiveAudio &&
+        show.decks[deck].sceneId == "recursive-circuit";
     EffectInputs effect{};
     effect.bloom = finite_unit(show.decks[deck].effects[0]);
     effect.feedback = finite_unit(show.decks[deck].effects[1]);
@@ -605,9 +758,14 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
     effect.colorEnergy = render.smoothedMacros[3];
     effect.motionTime = time;
     effect.bass = finite_unit(signal.bass);
-    effect.reactiveEnergy = reactive.energy;
-    effect.reactivePulse = reactive.pulse;
-    effect.reactiveFlow = reactive.flow;
+    effect.reactiveEnergy = musicalRecursive
+        ? std::max(recursiveMusical.density,
+                   0.55f * recursiveMusical.release)
+        : reactive.energy;
+    effect.reactivePulse = musicalRecursive
+        ? recursiveMusical.impact : reactive.pulse;
+    effect.reactiveFlow = musicalRecursive
+        ? recursiveMusical.flow : reactive.flow;
     render.context->UpdateSubresource(render.effectConstants.Get(), 0, nullptr,
                                        &effect, 0, 0);
     render.context->OMSetRenderTargets(
@@ -655,6 +813,10 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
   }
   render.lastPublishedSeconds = seconds;
   return true;
+}
+
+void SpoutRender::ResetMusicalSceneState() noexcept {
+  if (impl_) impl_->recursiveScene.Reset();
 }
 
 bool SpoutRender::ReloadShaders(std::string& error) {

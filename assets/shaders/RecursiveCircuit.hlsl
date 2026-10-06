@@ -14,6 +14,11 @@ cbuffer SceneInputs : register(b0) {
   // and an eased three-palette / topology phrase position.
   float4 reactive;
   float4 sceneParams;
+  // Appended ABI: renderer-owned MusicalStateFrame interpretation.
+  // A = flow, density, topology, palette; B = impact, release, variation,
+  // enabled. The legacy prefix above remains byte-for-byte unchanged.
+  float4 musicalA;
+  float4 musicalB;
 };
 
 struct PSInput {
@@ -61,15 +66,45 @@ float thinRail(float distance, float width) {
 // The line geometry is generated here; no textures, presets or video are used.
 float4 main(PSInput input) : SV_TARGET {
   float4 controls = saturate(sceneParams);
-  float music = saturate(reactive.x);
-  float pulse = saturate(reactive.y);
-  float flow = reactive.z;
-  float palettePhase = saturate(reactive.w) * 3.0;
-  // The grouped FFT values can be far smaller than room-mic RMS. The broad
-  // music envelope carries the field while each band still has a distinct job.
-  float low = saturate(audioContour(bass, 0.0008, 0.012) + 0.25 * music);
-  float mid = saturate(audioContour(mids, 0.0008, 0.014) + 0.20 * music);
-  float treble = saturate(audioContour(highs, 0.0006, 0.012) + 0.13 * music);
+  bool useMusical = musicalB.w > 0.5;
+  float music;
+  float pulse;
+  float flow;
+  float palettePhase;
+  float density = 0.0;
+  float topologyDrive = 0.0;
+  float releaseTail = 0.0;
+  float variation = 0.0;
+  float low;
+  float mid;
+  float treble;
+  if (useMusical) {
+    // These visual roles come only from the renderer's scene adapter. Raw FFT
+    // bands and one-frame hit flags cannot define high-level behavior here.
+    density = saturate(musicalA.y);
+    topologyDrive = saturate(musicalA.z);
+    releaseTail = saturate(musicalB.y);
+    variation = saturate(musicalB.z);
+    music = saturate(max(density, 0.38 * releaseTail));
+    pulse = saturate(musicalB.x);
+    flow = musicalA.x;
+    palettePhase = saturate(musicalA.w) * 3.0;
+    low = saturate(0.72 * density + 0.28 * releaseTail);
+    mid = saturate(0.66 * topologyDrive + 0.22 * density +
+                   0.12 * variation);
+    treble = saturate(0.58 * density + 0.34 * pulse +
+                      0.08 * variation);
+  } else {
+    music = saturate(reactive.x);
+    pulse = saturate(reactive.y);
+    flow = reactive.z;
+    palettePhase = saturate(reactive.w) * 3.0;
+    // The grouped FFT values can be far smaller than room-mic RMS. The broad
+    // music envelope carries the field while each band still has a distinct job.
+    low = saturate(audioContour(bass, 0.0008, 0.012) + 0.25 * music);
+    mid = saturate(audioContour(mids, 0.0008, 0.014) + 0.20 * music);
+    treble = saturate(audioContour(highs, 0.0006, 0.012) + 0.13 * music);
+  }
   float aspect = resolution.x / max(resolution.y, 1.0);
   float2 p = (input.uv - 0.5) * float2(aspect * 2.0, 2.0);
 
@@ -85,7 +120,8 @@ float4 main(PSInput input) : SV_TARGET {
   p += broadCurl * (0.035 + 0.17 * music + 0.055 * mid);
   p += orbit * (0.045 + 0.105 * low) * sin(flow * 0.58 + length(p));
   p = rotate2(p, 0.06 * sin(flow * 0.31) + 0.24 * mid);
-  p *= (1.24 - 0.23 * controls.z) * (1.0 + 0.22 * low);
+  p *= (1.24 - 0.23 * controls.z) * (1.0 + 0.22 * low) *
+       (useMusical ? 1.0 - 0.065 * pulse : 1.0);
   float distanceFromCenter = length(p);
   float coreMask = smoothstep(0.075, 0.28, distanceFromCenter);
   float edgeMask = 1.0 - smoothstep(2.12, 3.10, distanceFromCenter);
@@ -98,7 +134,8 @@ float4 main(PSInput input) : SV_TARGET {
   float paletteBlend = smoothstep(0.0, 1.0, frac(palettePosition));
   // Each phrase smoothly swaps both shape language and a full color family.
   // The three-state loop has identical endpoints, so it never hard-cuts.
-  float topologyMode = 0.5 - 0.5 * cos(palettePhase * 3.14159265);
+  float topologyMode = useMusical ? topologyDrive :
+      0.5 - 0.5 * cos(palettePhase * 3.14159265);
 
   [unroll] for (int i = 0; i < CIRCUIT_OCTAVES; ++i) {
     float layer = (float)i;
@@ -137,15 +174,18 @@ float4 main(PSInput input) : SV_TARGET {
 
     // The seed is spatially stable; bass grows individual branches instead
     // of changing the brightness of all cells in the same video frame.
-    float branchGate = smoothstep(0.59 - 0.27 * controls.x - 0.18 * low,
-                                  0.79 - 0.27 * controls.x - 0.18 * low,
+    float branchDrive = useMusical ? density : low;
+    float branchGate = smoothstep(0.59 - 0.27 * controls.x - 0.18 * branchDrive,
+                                  0.79 - 0.27 * controls.x - 0.18 * branchDrive,
                                   seed);
     branch *= branchGate;
     float dataDistance = abs(local.y + 0.20 -
         (seed - 0.5) * 0.11 * local.x *
         (1.0 - 4.0 * local.x * local.x));
-    float dataGate = smoothstep(0.59 - 0.21 * controls.x - 0.18 * treble,
-                                0.78 - 0.21 * controls.x - 0.18 * treble,
+    float dataDrive = useMusical ?
+        saturate(0.74 * density + 0.26 * topologyDrive) : treble;
+    float dataGate = smoothstep(0.59 - 0.21 * controls.x - 0.18 * dataDrive,
+                                0.78 - 0.21 * controls.x - 0.18 * dataDrive,
                                 nodeSeed);
     float dataRail = thinRail(dataDistance, width * 0.57) * dataGate;
     float2 nodePosition = float2(0.13 * (seed - 0.5), 0.0);
@@ -163,11 +203,14 @@ float4 main(PSInput input) : SV_TARGET {
     float ribbonDistance = abs(local.y - 0.20 *
         sin(local.x * 5.3 + flow * 1.08 + seed * 6.2831853));
     float ribbon = thinRail(ribbonDistance, width * 1.15);
-    float morph = smoothstep(0.12, 0.88,
+    float morph = useMusical ? smoothstep(0.12, 0.88,
+        topologyMode * 0.72 + pulse * 0.25 + variation * 0.12 +
+        (seed - 0.5) * 0.18) : smoothstep(0.12, 0.88,
         topologyMode * 0.66 + pulse * 0.26 + mid * 0.23 +
         (seed - 0.5) * 0.18);
 
     float finePresence = lerp(1.0, 0.48 + 0.92 * controls.z, depth);
+    if (useMusical) finePresence *= lerp(0.42, 1.0, density);
     float attenuation = (0.85 - 0.095 * layer) * fieldMask * finePresence;
     float3 pigment0 = i % 3 == 0 ? float3(0.025, 0.82, 0.97) :
                       i % 3 == 1 ? float3(0.73, 0.16, 0.98) :
@@ -183,6 +226,7 @@ float4 main(PSInput input) : SV_TARGET {
         paletteStep < 2.0 ? lerp(pigment1, pigment2, paletteBlend) :
                             lerp(pigment2, pigment0, paletteBlend);
     float charge = 0.42 + 0.88 * controls.w;
+    if (useMusical) charge *= 0.68 + 0.32 * max(density, releaseTail);
     float railLumen = spine * 0.35 + branch * 0.51 +
                       dataRail * (0.21 + 0.28 * treble) + junction * 0.44;
     float loopLumen = loop * (0.43 + 0.10 * low) +
@@ -191,7 +235,12 @@ float4 main(PSInput input) : SV_TARGET {
     float packet = smoothstep(0.87, 0.99,
         0.5 + 0.5 * cos(local.x * 17.0 - flow * 3.5 + seed * 6.2831853));
     float lumen = lerp(railLumen, loopLumen, morph) +
-                  (spine + ribbon) * packet * (0.075 + 0.20 * music);
+                   (spine + ribbon) * packet * (0.075 + 0.20 * music);
+    if (useMusical) {
+      // Release holds a smaller spatial tail after impact instead of snapping
+      // immediately back to the calm topology.
+      lumen += (spine + 0.65 * ribbon) * releaseTail * 0.10;
+    }
     float sheath = 1.0 - smoothstep(0.040, 0.085,
                                     min(horizontalDistance,
                                         verticalDistance));

@@ -6,6 +6,7 @@
 #include "SpoutRender.h"
 
 #include "PrismForge/QualityGovernor.h"
+#include "PrismForge/MusicalStateEngine.h"
 #include "PrismForge/ShowState.h"
 #include "PrismForge/SignalAnalyzer.h"
 
@@ -346,6 +347,7 @@ int main(int argc, char** argv) {
   bool noAudio = false;
   bool noPersist = false;
   bool launchpadEnabled = false;
+  bool legacyRecursiveAudio = false;
   for (int index = 1; index < argc; ++index) {
     const std::string argument = argv[index];
     if (argument == "--seconds" && index + 1 < argc) {
@@ -356,9 +358,12 @@ int main(int argc, char** argv) {
       noPersist = true;
     } else if (argument == "--launchpad") {
       launchpadEnabled = true;
+    } else if (argument == "--legacy-recursive-audio") {
+      legacyRecursiveAudio = true;
     } else {
       std::cerr << "Usage: PrismForge.Engine [--seconds N] [--no-audio] "
-                   "[--no-persist] [--launchpad]\n";
+                   "[--no-persist] [--launchpad] "
+                   "[--legacy-recursive-audio]\n";
       ReleaseMutex(mutex);
       CloseHandle(mutex);
       return 64;
@@ -402,6 +407,9 @@ int main(int argc, char** argv) {
   if (!oscReady) std::cerr << "OSC unavailable; pipe control continues: " << error << '\n';
 
   SignalAnalyzer analyzer(audio.SampleRate());
+  MusicalStateEngineConfig musicalConfig;
+  musicalConfig.sampleRate = audio.SampleRate();
+  MusicalStateEngine musicalState(musicalConfig);
   ShowState show;
   ShowStore store;
   bool persistenceEnabled = !noPersist;
@@ -464,6 +472,9 @@ int main(int argc, char** argv) {
         audioSource = event->activeId;
         while (audioQueue.TryPop()) {}  // Drop blocks from the prior sample clock.
         analyzer = SignalAnalyzer(event->sampleRate);
+        musicalState.SetSampleRate(event->sampleRate);
+        musicalState.Reset();
+        renderer.ResetMusicalSceneState();
         lastHitCount = 0;
         lastAccentCount = 0;
         lastAudioBlock = Clock::time_point{};
@@ -472,6 +483,9 @@ int main(int argc, char** argv) {
       } else if (event->kind == AudioSwitchEventKind::Disconnected) {
         while (audioQueue.TryPop()) {}
         analyzer = SignalAnalyzer(event->sampleRate);
+        musicalState.SetSampleRate(event->sampleRate);
+        musicalState.Reset();
+        renderer.ResetMusicalSceneState();
         lastHitCount = 0;
         lastAccentCount = 0;
         lastAudioBlock = Clock::time_point{};
@@ -500,6 +514,9 @@ int main(int argc, char** argv) {
       // A source can stop delivering blocks without an OS disconnect event.
       // Never leave old spectral energy pinned on the display or shader.
       analyzer = SignalAnalyzer(audio.SampleRate());
+      musicalState.SetSampleRate(audio.SampleRate());
+      musicalState.Reset();
+      renderer.ResetMusicalSceneState();
       lastHitCount = 0;
       lastAccentCount = 0;
       staleSignalCleared = true;
@@ -516,6 +533,10 @@ int main(int argc, char** argv) {
       signal.hit = false;
       signal.accent = false;
     }
+    // Musical interpretation consumes the normalized one-frame hit/accent
+    // flags. Raw SignalFrameV1 remains authoritative for modulation and every
+    // scene other than the opt-in Recursive Circuit renderer path.
+    const MusicalStateFrameV1 musical = musicalState.Advance(signal);
     while (auto command = commands.TryPop()) {
       error.clear();
       const bool changed = command->name == "reloadShaders" ?
@@ -576,7 +597,8 @@ int main(int argc, char** argv) {
     error.clear();
     const auto effective = EffectiveShow(show, signal, routeSmoothing,
         1.0f / governor.Current().targetFps, gestureMotion);
-    if (!renderer.Render(effective, signal, governor.Current(), elapsed, error)) {
+    if (!renderer.Render(effective, signal, musical, !legacyRecursiveAudio,
+                         governor.Current(), elapsed, error)) {
       std::cerr << "Renderer error: " << error << '\n';
       break;
     }

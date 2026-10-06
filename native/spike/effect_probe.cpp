@@ -229,21 +229,27 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
                      std::uint64_t& hash, std::string& error,
                      const QualityTier& quality = QualityTier{1.0f, 60},
                      double* average_luma = nullptr,
-                     std::uint8_t* maximum_rgb = nullptr,
-                     const SignalFrameV1* signal_override = nullptr,
-                     std::uint64_t* full_frame_hash = nullptr,
-                     std::array<std::uint32_t, 18 * 32>* grid_pixels = nullptr) {
+                      std::uint8_t* maximum_rgb = nullptr,
+                      const SignalFrameV1* signal_override = nullptr,
+                      std::uint64_t* full_frame_hash = nullptr,
+                      std::array<std::uint32_t, 18 * 32>* grid_pixels = nullptr,
+                      const MusicalStateFrameV1* musical_override = nullptr,
+                      bool use_musical_recursive_audio = false) {
   SignalFrameV1 signal{};
   signal.bass = 0.4f;
   signal.mids = 0.3f;
   signal.highs = 0.2f;
   if (signal_override) signal = *signal_override;
+  MusicalStateFrameV1 musical{};
+  if (musical_override) musical = *musical_override;
   // Shared D3D readback can lag several Spout frame counters on this driver,
   // especially immediately after resizing. Settle a same-time frame train
   // before sampling; the 30 fps gate is checked separately below.
   const unsigned frames = quality.targetFps > 30 ? 16u : 1u;
   for (unsigned frame = 0; frame < frames; ++frame) {
-    if (!renderer.Render(show, signal, quality, seconds, error)) return false;
+    if (!renderer.Render(show, signal, musical,
+                         use_musical_recursive_audio, quality, seconds,
+                         error)) return false;
     // Pace the receiver like a live 60 Hz consumer; a tight CPU loop can run
     // far ahead of queued sender GPU work and sample the prior effect/scene.
     if (quality.targetFps > 30)
@@ -358,7 +364,8 @@ bool capture_reactive_trace(const std::filesystem::path& shader_directory,
           return false;
         }
       }
-    } else if (!renderer.Render(show, signal, {1.0f, 60}, seconds, error)) {
+    } else if (!renderer.Render(show, signal, {}, false, {1.0f, 60},
+                                seconds, error)) {
       receiver.ReleaseReceiver();
       receiver.CloseDirectX11();
       return false;
@@ -375,10 +382,12 @@ bool capture_reactive_trace(const std::filesystem::path& shader_directory,
 bool capture_non_recursive_flow_case(
     const std::filesystem::path& shader_directory, ID3D11Device* device,
     ID3D11DeviceContext* context, float flow,
-    std::uint64_t& fingerprint, std::string& error) {
-  const std::string sender_name = flow > 0.0f
+    std::uint64_t& fingerprint, std::string& error,
+    bool musical_mode = false) {
+  std::string sender_name = flow > 0.0f
       ? "PrismForge.EffectProbe.NonRecursiveFlowOn"
       : "PrismForge.EffectProbe.NonRecursiveFlowOff";
+  sender_name += musical_mode ? ".Musical" : ".Legacy";
   SpoutRender renderer(sender_name);
   if (!renderer.Initialize(shader_directory, error)) return false;
   spoutDX receiver;
@@ -397,9 +406,23 @@ bool capture_non_recursive_flow_case(
   signal.bass = 0.018f;
   signal.mids = 0.014f;
   signal.highs = 0.011f;
+  MusicalStateFrameV1 musical{};
+  musical.sourceSampleIndex = 48'000;
+  musical.eventId = 0x4D55534943414C31ULL;
+  musical.immediateEnergy = 0.8f;
+  musical.onsetEnvelope = 0.7f;
+  musical.accentEnvelope = 0.5f;
+  musical.grooveEnergy = 0.75f;
+  musical.sustainedEnergy = 0.65f;
+  musical.energyTrend = 0.4f;
+  musical.building = 0.7f;
+  musical.driving = 0.8f;
+  musical.peak = 0.5f;
   constexpr QualityTier quality{0.75f, 60};
   for (unsigned step = 0; step < 4; ++step) {
-    if (!renderer.Render(show, signal, quality, step * 0.1, error)) {
+    musical.sourceSampleIndex += 4'800;
+    if (!renderer.Render(show, signal, musical, musical_mode, quality,
+                         step * 0.1, error)) {
       receiver.ReleaseReceiver();
       receiver.CloseDirectX11();
       return false;
@@ -409,7 +432,8 @@ bool capture_non_recursive_flow_case(
   double luma = 0.0;
   const bool captured = render_and_hash(
       renderer, receiver, device, context, show, 0.4, grid_hash, error,
-      quality, &luma, nullptr, &signal, &fingerprint);
+      quality, &luma, nullptr, &signal, &fingerprint, nullptr, &musical,
+      musical_mode);
   receiver.ReleaseReceiver();
   receiver.CloseDirectX11();
   if (!captured) return false;
@@ -418,6 +442,187 @@ bool capture_non_recursive_flow_case(
     return false;
   }
   return true;
+}
+
+struct MusicalSceneTrace {
+  std::array<ReactiveSample, 5> samples{};
+};
+
+bool capture_musical_scene_trace(
+    const std::filesystem::path& shader_directory, ID3D11Device* device,
+    ID3D11DeviceContext* context, MusicalSceneTrace& trace,
+    std::string& error) {
+  constexpr const char* sender_name =
+      "PrismForge.EffectProbe.MusicalRecursiveTimeline";
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name);
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open Musical Recursive timeline receiver";
+    return false;
+  }
+
+  ShowSnapshot show;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.crossfader = 0.0f;
+  SignalFrameV1 fixedRaw{};
+  fixedRaw.rms = 0.07f;
+  fixedRaw.bass = 0.03f;
+  fixedRaw.mids = 0.025f;
+  fixedRaw.highs = 0.02f;
+
+  std::array<MusicalStateFrameV1, 5> states{};
+  // Quiet -> groove -> build -> peak -> release. Raw audio remains identical,
+  // so received differences can only come from the musical-state feature.
+  states[0].sourceSampleIndex = 48'000;
+  states[0].eventId = 1;
+  states[0].calm = 1.0f;
+  states[0].slowStateAge = 0.45f;
+
+  states[1].sourceSampleIndex = 84'000;
+  states[1].eventId = 2;
+  states[1].immediateEnergy = 0.38f;
+  states[1].grooveEnergy = 0.82f;
+  states[1].sustainedEnergy = 0.48f;
+  states[1].driving = 0.62f;
+  states[1].slowStateAge = 0.30f;
+
+  states[2].sourceSampleIndex = 120'000;
+  states[2].eventId = 3;
+  states[2].immediateEnergy = 0.55f;
+  states[2].grooveEnergy = 0.72f;
+  states[2].sustainedEnergy = 0.74f;
+  states[2].energyTrend = 0.78f;
+  states[2].building = 0.94f;
+  states[2].driving = 0.58f;
+  states[2].slowStateAge = 0.52f;
+
+  states[3].sourceSampleIndex = 156'000;
+  states[3].eventId = 4;
+  states[3].immediateEnergy = 0.96f;
+  states[3].onsetEnvelope = 0.92f;
+  states[3].accentEnvelope = 0.76f;
+  states[3].grooveEnergy = 0.91f;
+  states[3].sustainedEnergy = 0.96f;
+  states[3].driving = 0.86f;
+  states[3].peak = 0.98f;
+  states[3].slowStateAge = 0.12f;
+
+  states[4].sourceSampleIndex = 192'000;
+  states[4].eventId = 5;
+  states[4].immediateEnergy = 0.14f;
+  states[4].grooveEnergy = 0.26f;
+  states[4].sustainedEnergy = 0.47f;
+  states[4].energyTrend = -0.82f;
+  states[4].calm = 0.20f;
+  states[4].release = 0.96f;
+  states[4].slowStateAge = 0.35f;
+
+  for (unsigned index = 0; index < states.size(); ++index) {
+    auto& sample = trace.samples[index];
+    const double seconds = index * 0.75;
+    if (!render_and_hash(renderer, receiver, device, context, show, seconds,
+                         sample.hash, error, {1.0f, 60}, &sample.luma,
+                         nullptr, &fixedRaw, nullptr, &sample.pixels,
+                         &states[index], true)) {
+      receiver.ReleaseReceiver();
+      receiver.CloseDirectX11();
+      return false;
+    }
+  }
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  return true;
+}
+
+bool capture_legacy_recursive_musical_case(
+    const std::filesystem::path& shader_directory, ID3D11Device* device,
+    ID3D11DeviceContext* context, const MusicalStateFrameV1& state,
+    std::string_view name, std::uint64_t& fingerprint, std::string& error) {
+  const std::string sender_name =
+      "PrismForge.EffectProbe.LegacyRecursive." + std::string(name);
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name.c_str());
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open legacy Recursive feature-containment receiver";
+    return false;
+  }
+  ShowSnapshot show;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.crossfader = 0.0f;
+  SignalFrameV1 signal{};
+  signal.rms = 0.06f;
+  signal.bass = 0.018f;
+  signal.mids = 0.014f;
+  signal.highs = 0.011f;
+  MusicalStateFrameV1 musical = state;
+  for (unsigned step = 0; step < 4; ++step) {
+    musical.sourceSampleIndex += 4'800;
+    if (!renderer.Render(show, signal, musical, false, {1.0f, 60},
+                         step * 0.1, error)) {
+      receiver.ReleaseReceiver();
+      receiver.CloseDirectX11();
+      return false;
+    }
+  }
+  std::uint64_t grid_hash = 0;
+  const bool captured = render_and_hash(
+      renderer, receiver, device, context, show, 0.4, grid_hash, error,
+      {1.0f, 60}, nullptr, nullptr, &signal, &fingerprint, nullptr,
+      &musical, false);
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  return captured;
+}
+
+// Capture one feature-on frame from a fresh renderer after an identical
+// pre-roll frame. Paired callers use the same raw signal, event ID, sample
+// indices, and render times, changing exactly one MusicalStateFrame field.
+bool capture_musical_role_case(
+    const std::filesystem::path& shader_directory, ID3D11Device* device,
+    ID3D11DeviceContext* context, std::string_view name,
+    const MusicalStateFrameV1& pre_roll,
+    const MusicalStateFrameV1& final_state, ReactiveSample& sample,
+    std::string& error) {
+  const std::string sender_name =
+      "PrismForge.EffectProbe.MusicalRole." + std::string(name);
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name.c_str());
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open Musical Recursive role receiver";
+    return false;
+  }
+
+  ShowSnapshot show;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.crossfader = 0.0f;
+  SignalFrameV1 fixed_raw{};
+  fixed_raw.rms = 0.07f;
+  fixed_raw.bass = 0.03f;
+  fixed_raw.mids = 0.025f;
+  fixed_raw.highs = 0.02f;
+  if (!renderer.Render(show, fixed_raw, pre_roll, true, {1.0f, 60},
+                       0.0, error)) {
+    receiver.ReleaseReceiver();
+    receiver.CloseDirectX11();
+    return false;
+  }
+
+  const bool captured = render_and_hash(
+      renderer, receiver, device, context, show, 1.0, sample.hash, error,
+      {1.0f, 60}, &sample.luma, nullptr, &fixed_raw, nullptr,
+      &sample.pixels, &final_state, true);
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  return captured;
 }
 
 }  // namespace
@@ -756,7 +961,7 @@ int main(int argc, char** argv) {
     if (!correct) return 3;
   }
   SignalFrameV1 silent{};
-  if (!renderer.Render(show, silent, tiers.back(), 13.01, error)) {
+  if (!renderer.Render(show, silent, {}, false, tiers.back(), 13.01, error)) {
     std::cerr << error << '\n';
     return 1;
   }
@@ -1007,6 +1212,219 @@ int main(int argc, char** argv) {
   std::cout << "flow_echo_non_recursive_unchanged="
             << (non_recursive_flow_off == non_recursive_flow_on) << '\n';
   if (non_recursive_flow_off != non_recursive_flow_on) return 3;
+
+  // The new feature flag must be a strict Recursive Circuit boundary. Match
+  // fresh Prism Atrium feedback timelines with a deliberately strong musical
+  // frame; enabling the feature may not change a single received pixel.
+  std::uint64_t non_recursive_musical_off = 0;
+  std::uint64_t non_recursive_musical_on = 0;
+  if (!capture_non_recursive_flow_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), 0.5f, non_recursive_musical_off, error,
+          false) ||
+      !capture_non_recursive_flow_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), 0.5f, non_recursive_musical_on, error,
+          true)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  std::cout << "musical_flag_non_recursive_unchanged="
+            << (non_recursive_musical_off == non_recursive_musical_on)
+            << '\n';
+  if (non_recursive_musical_off != non_recursive_musical_on) return 3;
+
+  // Rollback containment is bidirectional: with the feature disabled,
+  // Recursive Circuit must ignore MusicalStateFrame completely and preserve
+  // the established raw SignalFrame/ReactiveMotion path.
+  MusicalStateFrameV1 legacy_quiet{};
+  legacy_quiet.sourceSampleIndex = 48'000;
+  legacy_quiet.eventId = 10;
+  legacy_quiet.calm = 1.0f;
+  MusicalStateFrameV1 legacy_peak{};
+  legacy_peak.sourceSampleIndex = 48'000;
+  legacy_peak.eventId = 11;
+  legacy_peak.immediateEnergy = 1.0f;
+  legacy_peak.onsetEnvelope = 1.0f;
+  legacy_peak.accentEnvelope = 1.0f;
+  legacy_peak.grooveEnergy = 1.0f;
+  legacy_peak.sustainedEnergy = 1.0f;
+  legacy_peak.building = 1.0f;
+  legacy_peak.driving = 1.0f;
+  legacy_peak.peak = 1.0f;
+  std::uint64_t legacy_quiet_hash = 0;
+  std::uint64_t legacy_peak_hash = 0;
+  if (!capture_legacy_recursive_musical_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), legacy_quiet, "Quiet",
+          legacy_quiet_hash, error) ||
+      !capture_legacy_recursive_musical_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), legacy_peak, "Peak",
+          legacy_peak_hash, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  std::cout << "legacy_recursive_ignores_musical_state="
+            << (legacy_quiet_hash == legacy_peak_hash) << '\n';
+  if (legacy_quiet_hash != legacy_peak_hash) return 3;
+
+  // Feature-on coverage holds raw input fixed and supplies a deterministic
+  // musical phrase. Every adjacent phase must visibly alter sampled geometry,
+  // while all five frames remain within the established luminance bound.
+  MusicalSceneTrace musical_trace;
+  if (!capture_musical_scene_trace(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), musical_trace, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  constexpr std::array<const char*, 5> musical_phase_names = {
+      "quiet", "groove", "build", "peak", "release"};
+  bool musical_bounded = true;
+  bool musical_distinct = true;
+  for (unsigned index = 0; index < musical_trace.samples.size(); ++index) {
+    const auto& sample = musical_trace.samples[index];
+    musical_bounded &= std::isfinite(sample.luma) &&
+                       sample.luma > 0.0 && sample.luma < 0.5;
+    std::cout << "musical_recursive_" << musical_phase_names[index]
+              << "_hash=" << sample.hash << " luma=" << sample.luma;
+    if (index > 0) {
+      const unsigned changed = changed_grid_samples(
+          musical_trace.samples[index - 1], sample, 8);
+      std::cout << " changed_from_previous=" << changed;
+      musical_distinct &= sample.hash != musical_trace.samples[index - 1].hash &&
+                          changed >= 8;
+    }
+    std::cout << '\n';
+  }
+  std::cout << "musical_recursive_timeline_distinct=" << musical_distinct
+            << " bounded=" << musical_bounded << '\n';
+  if (!musical_distinct || !musical_bounded) return 3;
+
+  // Isolate the renderer adapter's individual musical roles. Every pair uses
+  // fresh renderers with identical pre-roll, raw audio, event ID, sample
+  // indices, and timestamps; only the named final MusicalState field differs.
+  constexpr std::uint64_t kRoleEventId = 0x524F4C4554455354ULL;
+  MusicalStateFrameV1 role_pre_roll{};
+  role_pre_roll.sourceSampleIndex = 48'000;
+  role_pre_roll.eventId = kRoleEventId;
+  role_pre_roll.grooveEnergy = 0.45f;
+  role_pre_roll.sustainedEnergy = 0.45f;
+  role_pre_roll.driving = 0.20f;
+  role_pre_roll.slowStateAge = 0.35f;
+  MusicalStateFrameV1 role_base = role_pre_roll;
+  role_base.sourceSampleIndex = 96'000;
+
+  MusicalStateFrameV1 density_state = role_base;
+  density_state.immediateEnergy = 1.0f;
+  ReactiveSample density_base_sample;
+  ReactiveSample density_high_sample;
+  if (!capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "DensityBase", role_pre_roll, role_base,
+          density_base_sample, error) ||
+      !capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "DensityImmediate", role_pre_roll,
+          density_state, density_high_sample, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+
+  // Positive trend is intentionally used here because it contributes only to
+  // topology in RecursiveSceneAdapter; unlike `building`, it does not also
+  // change density, flow velocity, palette offset, or palette easing speed.
+  MusicalStateFrameV1 topology_state = role_base;
+  topology_state.energyTrend = 1.0f;
+  ReactiveSample topology_base_sample;
+  ReactiveSample topology_high_sample;
+  if (!capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "TopologyBase", role_pre_roll, role_base,
+          topology_base_sample, error) ||
+      !capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "TopologyTrend", role_pre_roll,
+          topology_state, topology_high_sample, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+
+  MusicalStateFrameV1 impact_state = role_base;
+  impact_state.onsetEnvelope = 1.0f;
+  ReactiveSample impact_base_sample;
+  ReactiveSample impact_high_sample;
+  if (!capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "ImpactBase", role_pre_roll, role_base,
+          impact_base_sample, error) ||
+      !capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "ImpactOnset", role_pre_roll,
+          impact_state, impact_high_sample, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+
+  // Both release cases receive the same prior impact. At the matched final
+  // time the onset is gone; only the release weight remains in the variant.
+  MusicalStateFrameV1 release_pre_roll = role_pre_roll;
+  release_pre_roll.onsetEnvelope = 1.0f;
+  release_pre_roll.accentEnvelope = 0.65f;
+  MusicalStateFrameV1 release_base = role_base;
+  MusicalStateFrameV1 release_state = role_base;
+  release_state.release = 1.0f;
+  ReactiveSample release_base_sample;
+  ReactiveSample release_tail_sample;
+  if (!capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "ReleaseBase", release_pre_roll,
+          release_base, release_base_sample, error) ||
+      !capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "ReleaseTail", release_pre_roll,
+          release_state, release_tail_sample, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+
+  const auto role_is_bounded = [](const ReactiveSample& sample) {
+    return std::isfinite(sample.luma) && sample.luma > 0.0 &&
+           sample.luma < 0.5;
+  };
+  const auto validate_role = [&](std::string_view name,
+                                 const ReactiveSample& baseline_sample,
+                                 const ReactiveSample& variant_sample,
+                                 unsigned minimum_changed,
+                                 bool require_brighter) {
+    const unsigned changed = changed_grid_samples(
+        baseline_sample, variant_sample, 8);
+    const double luma_delta = variant_sample.luma - baseline_sample.luma;
+    const bool distinct = baseline_sample.hash != variant_sample.hash &&
+                          changed >= minimum_changed;
+    const bool bounded = role_is_bounded(baseline_sample) &&
+                         role_is_bounded(variant_sample) &&
+                         std::abs(luma_delta) < 0.10;
+    const bool direction_ok = !require_brighter || luma_delta > 0.0001;
+    std::cout << "musical_role_" << name
+              << "_changed_samples=" << changed
+              << " luma_delta=" << luma_delta
+              << " distinct=" << distinct
+              << " bounded=" << bounded
+              << " direction_ok=" << direction_ok << '\n';
+    return distinct && bounded && direction_ok;
+  };
+  const bool density_role_ok = validate_role(
+      "density_immediate", density_base_sample, density_high_sample, 10, true);
+  const bool topology_role_ok = validate_role(
+      "topology_trend", topology_base_sample, topology_high_sample, 4, false);
+  const bool impact_role_ok = validate_role(
+      "impact_onset", impact_base_sample, impact_high_sample, 8, false);
+  const bool release_role_ok = validate_role(
+      "release_persistence", release_base_sample, release_tail_sample, 8, true);
+  if (!density_role_ok || !topology_role_ok || !impact_role_ok ||
+      !release_role_ok) return 3;
 
   // Compare matching timelines rather than a single frame before/after a
   // beat. This distinguishes audio-driven geometry from ordinary time motion

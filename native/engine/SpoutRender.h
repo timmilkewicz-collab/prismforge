@@ -1,6 +1,7 @@
 #pragma once
 
 #include <PrismForge/QualityGovernor.h>
+#include <PrismForge/MusicalStateEngine.h>
 #include <PrismForge/ShowState.h>
 #include <PrismForge/SignalAnalyzer.h>
 
@@ -24,7 +25,12 @@ class SpoutRender {
 
   bool Initialize(const std::filesystem::path& shaderDirectory, std::string& error);
   bool Render(const ShowSnapshot& show, const SignalFrameV1& signal,
-              const QualityTier& quality, double seconds, std::string& error);
+              const MusicalStateFrameV1& musicalState,
+              bool useMusicalRecursiveAudio, const QualityTier& quality,
+              double seconds, std::string& error);
+  // Clear only renderer-owned Recursive Circuit interpretation memory. The
+  // caller uses this beside analyzer/MusicalStateEngine source resets.
+  void ResetMusicalSceneState() noexcept;
   // Compiles every scene before replacing any live shader. On failure the last
   // valid set stays active.
   bool ReloadShaders(std::string& error);

@@ -401,3 +401,42 @@ acceptance, rollback packaging and hash checks are complete.
   the still-live `233633` Engine has different bytes. The new folder has not
   passed exact-package IPC or Arena reception and must not be treated as a
   live replacement on the basis of the source/isolated GPU checks.
+
+## Deterministic musical-state source candidate — 2026-10-06 PT
+
+- Work was isolated in a managed worktree on branch
+  `codex/musical-interpretation`, based on the existing Recursive Circuit/Flow
+  Echo source at `f77230d`. The running
+  `PrismForge-alpha-20261005-233633` Engine was observed but not stopped,
+  replaced, signaled or rebuilt in place. PrismBurst and saved Resolume
+  compositions were not touched.
+- A fresh Visual Studio 2026 Release configure/build completed, and native
+  CTest passed 8/8. The new musical-state test replays eight complete
+  `SignalFrameV1` CSV timelines twice and after reset, checks canonical
+  explicit-field hashes, verifies semantic changes over time, and covers
+  duplicates, large gaps, clock/counter rewinds, held event flags, real sample
+  rate changes, malformed/clipped inputs, seed isolation and 120,000 bounded
+  updates. Regenerating the eight fixtures produced byte-identical files.
+- All 18 scene shaders compiled at all four quality tiers with warnings as
+  errors (72 combinations). The Control build passed 8/8 Vitest checks,
+  produced its release frontend, built the .NET host with zero warnings or
+  errors, and passed 35/35 xUnit checks. `npm audit` still reports one existing
+  high-severity dependency advisory; no broad dependency update was attempted.
+- Review removed a non-periodic Recursive flow modulo that would have caused a
+  long-show topology jump, made committed slow-state age monotonic while a
+  challenger satisfies dwell, and expanded sample-rate and matched-role probe
+  coverage. Release Engine and EffectProbe targets compile after those changes.
+- The EffectProbe executable, IPC smoke, Control-crash survival and any
+  candidate Engine were deliberately not run while the known-good Engine owned
+  the PrismForge sender, pipe and OSC endpoints. Therefore fixed 1080p sender
+  behavior, received GPU differences for quiet/groove/build/peak/release,
+  blackout, panic dim, adaptive tiers, shader-reload rollback, real audio and
+  Arena reception are not newly proven for this candidate. They remain
+  explicit off-air acceptance gates rather than inferred successes.
+- Portable staging then created
+  `dist/PrismForge-alpha-20261006-011833-musical-state-candidate` without
+  launching it. All 51 SHA-256 manifest entries verified and the Launcher
+  `--check-layout` process exited 0. The packaged Engine SHA-256 is
+  `7a97ae651919acf35e07cb09961d3b2a8c6b8905a34166fd969162b5b0c198c6`.
+  Process inspection afterward still showed only the known-good
+  `20261005-233633` Engine (`--no-persist`) running.

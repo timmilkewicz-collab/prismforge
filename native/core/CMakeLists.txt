@@ -1,5 +1,6 @@
 add_library(prismforge_core STATIC
   src/SignalAnalyzer.cpp
+  src/MusicalStateEngine.cpp
   src/ReactiveMotion.cpp
   src/ShowState.cpp
   src/QualityGovernor.cpp

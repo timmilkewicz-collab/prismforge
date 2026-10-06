@@ -14,6 +14,9 @@ For a controlled, not-yet-show-cleared Resolume teaser, see the
 [weekend operator runbook](docs/SHOW_TEASER.md).
 The [visual-direction notes](docs/VISUAL_DIRECTION.md) record how the
 operator's reference clips informed original scenes without bundling footage.
+The source-only [musical interpretation contract](docs/MUSICAL_STATE.md)
+documents the deterministic `SignalFrameV1` to `MusicalStateFrameV1` boundary,
+replay fixtures, and Recursive Circuit rollback flag.
 
 ## Build on Windows
 
@@ -61,7 +64,8 @@ evidence of music reaching the shader.
 
 ## Repository map
 
-- `native/core`: signal analysis, show state, bounded queues and adaptive tiers.
+- `native/core`: signal and musical-state analysis, show state, bounded queues
+  and adaptive tiers.
 - `native/engine`: WASAPI/miniaudio capture, D3D11 scene/deck rendering, Spout
   sender and versioned named-pipe IPC.
 - `native/spike`: independent D3D11→Spout sender/receiver proof.

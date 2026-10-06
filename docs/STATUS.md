@@ -174,3 +174,35 @@ that Resolume, an audio interface, or the installed live rig works.
 - Latency measurement, audio/video recording verification and installer.
 
 No existing PrismBurst runtime, checkout or shortcut is modified by this repo.
+
+## Musical interpretation source candidate — 2026-10-06 PT
+
+- Branch `codex/musical-interpretation` adds a renderer-neutral,
+  deterministic `MusicalStateEngine` between `SignalFrameV1` and scene
+  behavior. Its fixed 64-byte output contract carries fast onset/accent
+  envelopes, groove, sustained energy, trend, overlapping
+  calm/building/driving/peak/release confidences, committed-state age and a
+  seeded transition event ID. Time comes only from the analyzer sample clock;
+  memory is fixed-size and malformed values are sanitized.
+- Recursive Circuit is the only scene migrated in this slice. A renderer-owned
+  adapter maps musical state to density, flow, topology, palette, impact and
+  release; the musical engine itself has no shader or scene concepts. Other
+  scenes, meters, cue timing and modulation retain the existing raw signal
+  path. `PrismForge.Engine.exe --legacy-recursive-audio` restores Recursive
+  Circuit and Flow Echo's prior raw `ReactiveMotion` behavior without changing
+  saved show data.
+- Eight checked-in analyzed-feature fixtures cover silence, low groove,
+  repeated transients, buildup, buildup-to-peak, peak-to-release, an isolated
+  transient and sustained loud energy. Exact replay/reset hashes, temporal
+  behavior, counter/sample-clock resets, malformed input, held events, seed
+  isolation, sample-rate scaling and a 120,000-frame bounded run are asserted.
+- This remains source/candidate work. No currently running package, PrismBurst
+  runtime, physical audio route or saved Resolume composition was modified.
+  The new GPU-role assertions, exact-package IPC/Control survival, live
+  playback-versus-pause behavior, Arena output FPS, blackout/panic/tier/hot
+  reload runtime checks and extended mixed-load soak still require an isolated
+  off-air validation window.
+- An unlaunched portable candidate was staged separately at
+  `dist/PrismForge-alpha-20261006-011833-musical-state-candidate`; its 51
+  manifest entries and Launcher layout check pass. It has not replaced or
+  connected to the live Engine and is not show-cleared.
