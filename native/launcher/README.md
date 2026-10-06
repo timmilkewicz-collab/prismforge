@@ -25,4 +25,16 @@ stdout/stderr from launcher starts append to
 error unless `--engine-only` is chosen. The launcher serializes concurrent
 starts and never terminates an existing process.
 
+To start a stopped candidate through the normal operator path while restoring
+Recursive Circuit's previous raw-audio behavior, run from that package:
+
+```powershell
+.\PrismForge.Launcher.exe --legacy-recursive-audio
+```
+
+The Launcher forwards the flag only to a newly started Engine. If an Engine is
+already running, it refuses the request rather than pretending the rollback was
+applied; stop only the verified candidate first, then run the command above.
+Launching without this flag remains unchanged and uses the musical-state path.
+
 It does not install shortcuts, alter desktop routing, or touch PrismBurst.

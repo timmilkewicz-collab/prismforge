@@ -54,9 +54,12 @@ silent or near-silent analyzed frames.
 `SignalFrameV1.sampleIndex` values and the configured sample rate. It never
 uses wall clock time or nondeterministic random state.
 
-- A duplicate sample index returns the previous frame exactly.
-- A sample-index or event-counter rewind is treated as a source restart. The
-  engine resets and anchors without replaying a stale hit flag.
+- A duplicate sample index returns the previous frame exactly even if the
+  duplicate payload or counters disagree. Duplicate identity has precedence;
+  a counter rewind is acted on only when a later sample index advances.
+- An advancing frame with a rewound event counter, or any sample-index rewind,
+  is treated as a source restart. The engine resets and anchors without
+  replaying a stale hit/accent flag or generating a phantom peak.
 - Large sample jumps are capped by a configured maximum state step.
 - NaN, infinity, clipping, and out-of-range raw fields are sanitized before
   they enter state.
@@ -64,12 +67,30 @@ uses wall clock time or nondeterministic random state.
   the hot path performs no allocation and stores no unbounded frame history.
 - The configured seed affects only event IDs. It cannot change energy or state
   confidence values.
+- Extra 60 fps render publications over a slower analyzer sequence are exact
+  duplicate-index holds, so they cannot alter the sequence observed at the
+  analyzer timestamps. `MusicalStateEngine` accepts no renderer animation time;
+  scene animation clocks exist only in the downstream renderer adapter.
 
 Fast attack/release envelopes preserve transients. Repeated-hit timing builds
 groove memory. Short and long energy followers produce trend evidence.
 Buildup and peak memories give identical loud frames different meaning after a
 rise, during a held loud section, and during a fall. Slow-state event IDs use
-continuous confidences plus hysteresis and per-state dwell times.
+continuous confidences plus hysteresis and per-state dwell times. A strong,
+buildup-qualified peak receives a bounded priority window over the slower
+driving follower so the peak can become an observable event; it is retained
+only while meaningful peak confidence remains.
+
+## Extraction boundary
+
+The core has no scene IDs, deck state, D3D, Spout, HLSL, Resolume, Control UI,
+or renderer animation-time dependency. Its only project-specific input
+dependency is the C++ `PrismForge/SignalAnalyzer.h` definition of
+`SignalFrameV1`, plus the assumption that its monotonic `sampleIndex` uses the
+configured sample rate. Reuse in PrismBurst therefore needs a small adapter or
+a shared analyzed-signal contract; it does not require extracting renderer or
+scene code. That integration is future work and this candidate does not modify
+PrismBurst.
 
 ## Recursive Circuit integration and rollback
 
@@ -84,10 +105,19 @@ and the existing modulation system. Blackout, panic dim, adaptive tiers, fixed
 1920x1080 sender output, and shader reload behavior remain downstream and
 unchanged.
 
-For source/runtime comparison, start a candidate Engine with:
+For an operator rollback through the packaged Launcher, first verify that no
+PrismForge Engine is running, change into the candidate package, and run:
 
 ```powershell
-PrismForge.Engine.exe --legacy-recursive-audio
+.\PrismForge.Launcher.exe --legacy-recursive-audio
+```
+
+The Launcher forwards the flag only when it starts a new Engine and refuses to
+silently accept it for an Engine that is already running. Direct Engine startup
+for source/runtime comparison remains available with:
+
+```powershell
+.\PrismForge.Engine.exe --legacy-recursive-audio
 ```
 
 That flag restores Recursive Circuit and Flow Echo's previous raw
@@ -114,7 +144,11 @@ Fixtures cover:
 
 Each replay compares two fresh engines field-for-field, repeats after reset,
 checks a canonical explicit-field fixed-point FNV hash, and asserts musical
-behavior over time. Additional fault cases cover malformed input, duplicate
-indices, large jumps, held flags, counter resets, sample-clock rewind,
-alternate seeds, sample-rate reset, and long-run bounds. The hash deliberately
-does not read struct padding or raw floating-point object bytes.
+behavior over time. The buildup-only fixture deliberately stays below the peak
+transition, the buildup-to-peak and peak-to-release fixtures contain explicit
+level transitions, and sustained-loud has a quiet anchor before its sole onset.
+Additional fault cases cover malformed input, duplicate-index/counter-rewind
+precedence, bounded large jumps, held reconnect flags, counter resets,
+sample-clock rewind, alternate seeds, render-cadence duplicates, sample-rate
+reset, and long-run bounds. The hash deliberately does not read struct padding
+or raw floating-point object bytes.

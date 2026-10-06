@@ -175,7 +175,7 @@ that Resolume, an audio interface, or the installed live rig works.
 
 No existing PrismBurst runtime, checkout or shortcut is modified by this repo.
 
-## Musical interpretation source candidate — 2026-10-06 PT
+## Musical interpretation operator-ready source — 2026-10-06 PT
 
 - Branch `codex/musical-interpretation` adds a renderer-neutral,
   deterministic `MusicalStateEngine` between `SignalFrameV1` and scene
@@ -184,25 +184,44 @@ No existing PrismBurst runtime, checkout or shortcut is modified by this repo.
   calm/building/driving/peak/release confidences, committed-state age and a
   seeded transition event ID. Time comes only from the analyzer sample clock;
   memory is fixed-size and malformed values are sanitized.
-- Recursive Circuit is the only scene migrated in this slice. A renderer-owned
-  adapter maps musical state to density, flow, topology, palette, impact and
-  release; the musical engine itself has no shader or scene concepts. Other
-  scenes, meters, cue timing and modulation retain the existing raw signal
-  path. `PrismForge.Engine.exe --legacy-recursive-audio` restores Recursive
-  Circuit and Flow Echo's prior raw `ReactiveMotion` behavior without changing
-  saved show data.
+- Recursive Circuit remains the only migrated scene. A renderer-owned adapter
+  maps musical state to flow, density, topology, palette, impact, release and
+  bounded event variation. Other scenes, meters, cue timing and modulation
+  retain their raw-signal paths. The core has no scene, deck, D3D, Spout,
+  shader, Resolume, Control or renderer-clock dependency; future PrismBurst
+  reuse needs only a `SignalFrameV1`-compatible input adapter/shared contract.
+- The packaged Launcher now forwards `--legacy-recursive-audio` only when it
+  starts a new Engine and refuses to pretend the flag was applied to an
+  already-running Engine. The default command line is unchanged.
 - Eight checked-in analyzed-feature fixtures cover silence, low groove,
   repeated transients, buildup, buildup-to-peak, peak-to-release, an isolated
-  transient and sustained loud energy. Exact replay/reset hashes, temporal
-  behavior, counter/sample-clock resets, malformed input, held events, seed
-  isolation, sample-rate scaling and a 120,000-frame bounded run are asserted.
-- This remains source/candidate work. No currently running package, PrismBurst
-  runtime, physical audio route or saved Resolume composition was modified.
-  The new GPU-role assertions, exact-package IPC/Control survival, live
-  playback-versus-pause behavior, Arena output FPS, blackout/panic/tier/hot
-  reload runtime checks and extended mixed-load soak still require an isolated
-  off-air validation window.
-- An unlaunched portable candidate was staged separately at
-  `dist/PrismForge-alpha-20261006-011833-musical-state-candidate`; its 51
-  manifest entries and Launcher layout check pass. It has not replaced or
-  connected to the live Engine and is not show-cleared.
+  transient and sustained loud energy. Exact replay/reset hashes, explicit
+  behavior ranges, duplicate/counter precedence, clean reconnect, bounded
+  gaps, seed isolation, render-cadence independence and a 120,000-frame run
+  pass; regenerating all eight CSV files is byte-identical.
+- A fresh Release build and 12/12 native CTests pass. All 18 shaders compile at
+  all four tiers, Control passes 8/8 UI and 35/35 .NET tests, source IPC and
+  Control-crash/reconnect checks pass, and the executed isolated GPU probe
+  passes musical density/topology/impact/release separation, bounded output,
+  blackout, panic dim, all tiers including the 30 fps gate, fixed 1080p output,
+  hot-reload rollback, non-Recursive invariance and legacy isolation.
+- The existing local IPC SignalFrame now has an additive `musical` telemetry
+  object. A packaged read-only monitor verifies the pipe-server executable and
+  shows sample time, RMS, groove, buildup, peak, release, calm, event ID and
+  Engine FPS without sending commands or redesigning Control.
+- Five Release benchmark runs measured 299.95–366.32 ns per update on this
+  host, with identical checksums, zero observed `operator new` calls/bytes in
+  the measured update hot path, a 64-byte frame and no observed process-memory
+  delta. Single-call and batch maxima are scheduler-sensitive, not hard
+  real-time bounds.
+- With operator permission, the verified `20261005-233633` known-good Engine
+  was gracefully stopped to free its sender/pipe/OSC ownership. Its package
+  was not modified or replaced. PrismBurst, Resolume compositions, Maono and
+  physical audio routing were not changed. Live music quality, Arena output
+  FPS, flash risk and the mixed-load soak remain operator gates.
+- The exact portable audition candidate is
+  `dist/PrismForge-alpha-20261006-032359-musical-state-operator-ready`.
+  All 53 manifest entries match. Exact-package Launcher layout, IPC/reconnect,
+  Control-crash survival, normal Launcher startup and legacy rollback startup
+  pass. The short Launcher checks opened the existing default capture path but
+  did not select a device or change routing; autosave remained absent.

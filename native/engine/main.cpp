@@ -3,6 +3,7 @@
 #include "OscBridge.h"
 #include "PipeServer.h"
 #include "ShowStore.h"
+#include "SignalTelemetry.h"
 #include "SpoutRender.h"
 
 #include "PrismForge/QualityGovernor.h"
@@ -95,24 +96,6 @@ bool SceneParameterAvailable(const Json& catalog, const std::string& id,
     return false;
   }
   return false;
-}
-
-Json SignalJson(const SignalFrameV1& signal, double fps, double frameMs,
-                unsigned targetFps, unsigned tier, float gestureMotion,
-                const std::string& gestureName) {
-  return {
-      {"sampleIndex", signal.sampleIndex}, {"rms", signal.rms},
-      {"peak", signal.peak}, {"bands", signal.bands},
-      {"low", signal.bass}, {"mid", signal.mids}, {"high", signal.highs},
-      {"hit", signal.hit}, {"accent", signal.accent},
-      {"hitCount", signal.hitCount}, {"bpm", signal.bpm},
-      {"beatPhase", signal.beatPhase}, {"beatConfidence", signal.beatConfidence},
-      {"gesture", {{"motion", gestureMotion}, {"name", gestureName}}},
-      {"audio", {{"rms", signal.rms}, {"peak", signal.peak},
-                  {"low", signal.bass}, {"mid", signal.mids},
-                  {"high", signal.highs}, {"clipping", signal.peak >= 0.99f}}},
-      {"performance", {{"fps", fps}, {"targetFps", targetFps},
-                       {"frameTimeMs", frameMs}, {"adaptiveQuality", tier}}}};
 }
 
 Json DeckJson(const DeckState& deck, const std::vector<ModulationRouteV1>& routes,
@@ -624,9 +607,10 @@ int main(int argc, char** argv) {
                                 audio.IsRunning(), audioReceiving, true, measuredFps, renderMs,
                                 governor.Current().targetFps, governor.TierIndex(),
                                 revision, cueSaved, oscReady, prismBurstHealth),
-                   SignalJson(signal, measuredFps, renderMs,
-                              governor.Current().targetFps, governor.TierIndex(),
-                              gestureMotion, gestureName));
+                   BuildSignalTelemetry(
+                       signal, musical, musicalState.SampleRate(), measuredFps,
+                       renderMs, governor.Current().targetFps,
+                       governor.TierIndex(), gestureMotion, gestureName));
       lastPublish = now;
     }
     if (persistenceEnabled && now - lastAutosave >= std::chrono::seconds(10) &&

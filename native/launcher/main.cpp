@@ -2,6 +2,8 @@
 #include <shellapi.h>
 #include <tlhelp32.h>
 
+#include "LauncherOptions.h"
+
 #include <algorithm>
 #include <cwctype>
 #include <filesystem>
@@ -36,14 +38,9 @@ class Handle {
   HANDLE value_;
 };
 
-struct Options {
-  std::optional<std::filesystem::path> engine;
-  std::optional<std::filesystem::path> control;
-  bool checkLayout = false;
-  bool engineOnly = false;
-  bool launchpad = false;
-  bool help = false;
-};
+using PrismForge::Launcher::BuildProcessCommandLine;
+using PrismForge::Launcher::Options;
+using PrismForge::Launcher::ParseOptions;
 
 std::wstring SystemError(DWORD error) {
   wchar_t* text = nullptr;
@@ -93,29 +90,6 @@ bool SameFile(const std::filesystem::path& left,
 bool ExistingFile(const std::filesystem::path& path) {
   std::error_code error;
   return std::filesystem::is_regular_file(path, error);
-}
-
-std::optional<Options> ParseOptions(int argc, wchar_t** argv) {
-  Options options;
-  for (int i = 1; i < argc; ++i) {
-    const std::wstring argument = argv[i];
-    if (argument == L"--engine" && i + 1 < argc) {
-      options.engine = argv[++i];
-    } else if (argument == L"--control" && i + 1 < argc) {
-      options.control = argv[++i];
-    } else if (argument == L"--check-layout") {
-      options.checkLayout = true;
-    } else if (argument == L"--engine-only") {
-      options.engineOnly = true;
-    } else if (argument == L"--launchpad") {
-      options.launchpad = true;
-    } else if (argument == L"--help") {
-      options.help = true;
-    } else {
-      return std::nullopt;
-    }
-  }
-  return options;
 }
 
 DWORD FindProcessByPath(const std::filesystem::path& expected) {
@@ -182,7 +156,7 @@ std::optional<std::filesystem::path> EngineLogPath() {
 }
 
 bool StartProcess(const std::filesystem::path& executable, bool engine,
-                  bool launchpad,
+                  bool launchpad, bool legacyRecursiveAudio,
                   DWORD& processId, std::wstring& error) {
   SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
   Handle log;
@@ -220,8 +194,8 @@ bool StartProcess(const std::filesystem::path& executable, bool engine,
 
   const std::wstring path = executable.wstring();
   const std::wstring directory = executable.parent_path().wstring();
-  std::wstring command = L"\"" + path + L"\"";
-  if (engine && launchpad) command += L" --launchpad";
+  std::wstring command = BuildProcessCommandLine(
+      executable, engine, launchpad, legacyRecursiveAudio);
   std::vector<wchar_t> mutableCommand(command.begin(), command.end());
   mutableCommand.push_back(L'\0');
   PROCESS_INFORMATION process{};
@@ -287,9 +261,14 @@ int Run(const Options& options) {
                 L"connect Control to an unverified build.\n\nExpected:\n" +
                 engine.wstring());
       result = 4;
-    } else if (options.launchpad) {
+    } else if (options.launchpad && !options.legacyRecursiveAudio) {
       ShowError(L"The Engine is already running. --launchpad only applies when "
                 L"starting a new Engine; this Launcher will not restart healthy output.");
+      result = 4;
+    } else if (options.legacyRecursiveAudio) {
+      ShowError(L"The Engine is already running. --legacy-recursive-audio only "
+                L"applies when starting a new Engine; this Launcher will not "
+                L"restart healthy output.");
       result = 4;
     }
   } else if (mutexError != ERROR_FILE_NOT_FOUND) {
@@ -303,7 +282,8 @@ int Run(const Options& options) {
   } else {
     DWORD processId = 0;
     std::wstring error;
-    if (!StartProcess(engine, true, options.launchpad, processId, error)) {
+    if (!StartProcess(engine, true, options.launchpad,
+                      options.legacyRecursiveAudio, processId, error)) {
       ShowError(error);
       result = 5;
     }
@@ -316,7 +296,7 @@ int Run(const Options& options) {
     } else {
       DWORD processId = 0;
       std::wstring error;
-      if (!StartProcess(control, false, false, processId, error)) {
+      if (!StartProcess(control, false, false, false, processId, error)) {
         ShowError(error + L"\n\nThe Engine was not stopped; relaunch Control after fixing this.");
         result = 6;
       }
@@ -338,13 +318,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   LocalFree(argv);
   if (!options) {
     ShowError(L"Usage: PrismForge.Launcher [--engine PATH] [--control PATH] "
-              L"[--engine-only] [--launchpad] [--check-layout]");
+              L"[--engine-only] [--launchpad] [--legacy-recursive-audio] "
+              L"[--check-layout]");
     return 64;
   }
   if (options->help) {
     MessageBoxW(nullptr,
                 L"PrismForge.Launcher [--engine PATH] [--control PATH] "
-                L"[--engine-only] [--launchpad] [--check-layout]",
+                L"[--engine-only] [--launchpad] [--legacy-recursive-audio] "
+                L"[--check-layout]",
                 L"PrismForge Launcher", MB_OK | MB_ICONINFORMATION);
     return 0;
   }

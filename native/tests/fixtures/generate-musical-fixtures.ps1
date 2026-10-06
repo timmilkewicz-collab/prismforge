@@ -141,12 +141,14 @@ Write-Fixture 'd_gradual_buildup.csv' 600 {
     $beatNumber = [Math]::Floor($frame / $period)
     $accent = $hit -and (($beatNumber % 4) -eq 0)
     $pulse = if ($hit) { 1.0 } else { [Math]::Exp(-$withinBeat / 4.0) }
-    $rms = 0.008 + 0.205 * [Math]::Pow($progress, 1.35) + 0.025 * $progress * $pulse
+    # Keep the pure buildup below the high-energy peak gate. This fixture
+    # exercises a sustained positive trajectory without an encoded drop.
+    $rms = 0.006 + 0.068 * [Math]::Pow($progress, 1.35) + 0.008 * $progress * $pulse
     if ($hit) { $script:buildHits++ }
     if ($accent) { $script:buildAccents++ }
     Add-Frame $lines $frame $rms ([Math]::Min(1.0, $rms * 2.3)) `
-        (0.012 + 0.255 * $progress + 0.035 * $pulse) `
-        (0.006 + 0.170 * $progress) (0.004 + 0.125 * $progress) `
+        (0.010 + 0.105 * $progress + 0.012 * $pulse) `
+        (0.005 + 0.072 * $progress) (0.003 + 0.052 * $progress) `
         $hit $accent ([UInt64]$script:buildHits) ([UInt64]$script:buildAccents) `
         120.0 ($withinBeat / $period) (0.25 + 0.72 * $progress)
 }
@@ -170,10 +172,11 @@ Write-Fixture 'e_buildup_to_peak.csv' 600 {
         $mids = 0.31 + 0.09 * $pulse
         $highs = 0.23 + 0.10 * $pulse
     } else {
-        $rms = 0.008 + 0.220 * [Math]::Pow($buildProgress, 1.2) + 0.020 * $pulse
-        $bass = 0.012 + 0.280 * $buildProgress + 0.035 * $pulse
-        $mids = 0.008 + 0.190 * $buildProgress
-        $highs = 0.006 + 0.145 * $buildProgress
+        # Leave clear headroom for the declared transition at $dropFrame.
+        $rms = 0.006 + 0.072 * [Math]::Pow($buildProgress, 1.2) + 0.008 * $pulse
+        $bass = 0.010 + 0.112 * $buildProgress + 0.014 * $pulse
+        $mids = 0.005 + 0.076 * $buildProgress
+        $highs = 0.003 + 0.056 * $buildProgress
     }
     if ($hit) { $script:dropHits++ }
     if ($accent) { $script:dropAccents++ }
@@ -186,26 +189,43 @@ $script:releaseHits = 0
 $script:releaseAccents = 0
 Write-Fixture 'f_peak_to_release.csv' 600 {
     param($lines, $frame)
-    $peakFrames = 120
+    $peakStart = 120
+    $releaseStart = 210
     $period = 30
     $withinBeat = $frame % $period
-    $activePeak = $frame -lt $peakFrames
-    $hit = $activePeak -and ($withinBeat -eq 0)
+    $building = $frame -lt $peakStart
+    $activePeak = ($frame -ge $peakStart) -and ($frame -lt $releaseStart)
+    $hit = ($frame -ge 30) -and ($frame -lt $releaseStart) -and ($withinBeat -eq 0)
     $beatNumber = [Math]::Floor($frame / $period)
-    $accent = $hit -and (($beatNumber % 2) -eq 0)
-    if ($activePeak) {
+    $accent = $hit -and ((($beatNumber % 2) -eq 0) -or ($frame -eq $peakStart))
+    if ($building) {
+        $progress = $frame / [double]($peakStart - 1)
+        $decay = 0.0
+        $rms = 0.006 + 0.072 * [Math]::Pow($progress, 1.2)
+        $bass = 0.010 + 0.112 * $progress
+        $mids = 0.005 + 0.076 * $progress
+        $highs = 0.003 + 0.056 * $progress
+    } elseif ($activePeak) {
         $decay = 1.0
+        $rms = 0.360
+        $bass = 0.50
+        $mids = 0.34
+        $highs = 0.25
     } else {
-        $decay = [Math]::Exp(-($frame - $peakFrames) / 95.0)
+        $decay = [Math]::Exp(-($frame - $releaseStart) / 95.0)
+        $rms = 0.002 + 0.360 * $decay
+        $bass = 0.002 + 0.50 * $decay
+        $mids = 0.002 + 0.34 * $decay
+        $highs = 0.001 + 0.25 * $decay
     }
     $pulse = if ($activePeak) { [Math]::Exp(-$withinBeat / 2.0) } else { 0.0 }
-    $rms = 0.002 + 0.360 * $decay + 0.040 * $pulse
+    $rms += 0.040 * $pulse
     if ($hit) { $script:releaseHits++ }
     if ($accent) { $script:releaseAccents++ }
     Add-Frame $lines $frame $rms ([Math]::Min(1.0, $rms * 2.25)) `
-        (0.002 + 0.50 * $decay) (0.002 + 0.34 * $decay) (0.001 + 0.25 * $decay) `
+        $bass $mids $highs `
         $hit $accent ([UInt64]$script:releaseHits) ([UInt64]$script:releaseAccents) `
-        120.0 ($withinBeat / $period) $(if ($activePeak) { 0.95 } else { 0.95 * $decay })
+        120.0 ($withinBeat / $period) $(if ($building) { 0.30 + 0.65 * $progress } elseif ($activePeak) { 0.95 } else { 0.95 * $decay })
 }
 
 $script:isolatedHits = 0
@@ -232,17 +252,22 @@ $script:loudHits = 0
 $script:loudAccents = 0
 Write-Fixture 'h_sustained_loud.csv' 600 {
     param($lines, $frame)
-    $hit = $frame -eq 0
+    # A short quiet anchor makes the one real transition observable; a hit on
+    # the first source frame would correctly be suppressed as reconnect state.
+    $loudStart = 30
+    $active = $frame -ge $loudStart
+    $hit = $frame -eq $loudStart
     $accent = $hit
     if ($hit) {
         $script:loudHits++
         $script:loudAccents++
     }
-    $rms = 0.32 + 0.012 * [Math]::Sin($frame * 0.09)
-    Add-Frame $lines $frame $rms 0.72 `
-        (0.44 + 0.012 * [Math]::Sin($frame * 0.07)) `
-        (0.31 + 0.010 * [Math]::Sin($frame * 0.05)) `
-        (0.23 + 0.008 * [Math]::Sin($frame * 0.11)) `
+    $rms = if ($active) { 0.32 + 0.012 * [Math]::Sin($frame * 0.09) } else { 0.001 }
+    $peak = if ($active) { 0.72 } else { 0.002 }
+    $bass = if ($active) { 0.44 + 0.012 * [Math]::Sin($frame * 0.07) } else { 0.001 }
+    $mids = if ($active) { 0.31 + 0.010 * [Math]::Sin($frame * 0.05) } else { 0.001 }
+    $highs = if ($active) { 0.23 + 0.008 * [Math]::Sin($frame * 0.11) } else { 0.001 }
+    Add-Frame $lines $frame $rms $peak $bass $mids $highs `
         $hit $accent ([UInt64]$script:loudHits) ([UInt64]$script:loudAccents) `
         120.0 (($frame % 30) / 30.0) 0.96
 }

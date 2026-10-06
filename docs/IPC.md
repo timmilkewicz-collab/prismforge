@@ -45,9 +45,23 @@ omit `sceneParams` load with 0.5 for each value.
 `StateSnapshot` includes revision, A/B deck scene/effect/modulation state,
 crossfader, four `masterEffects` amounts, blackout, panic dim, scene catalog, audio sources/levels, cue
 presence, performance tier/fps, and fixed Spout output format. `SignalFrame`
-contains transient, spectrum, beat and performance values. Unsupported,
+contains transient, spectrum, beat and performance values. It also includes an
+additive developer-facing `musical` object with the interpreted energies/state
+weights, source sample index/rate/time, and the deterministic event ID. The
+event ID is a decimal string so JSON/JavaScript clients preserve all 64 bits;
+older v1 clients may ignore the entire object. This telemetry does not add UI
+controls or a new command path. Unsupported,
 malformed, or overlong input is rejected. This is a local UI protocol, not an
 authenticated LAN API.
+
+For a live audition, close Control (this alpha permits one pipe client) and run
+the packaged read-only monitor. It connects only to an already-running Engine,
+checks the pipe-server process identity, and never sends commands:
+
+```powershell
+.\tools\watch-musical-state.ps1 -SampleSeconds 30
+```
+
 `audio.connected` means the capture stream is open; `audio.receiving` means a
 fresh audio block has arrived within 250 ms. Neither alone means music is
 audible or an effect is visibly responding. A lost or stalled stream clears

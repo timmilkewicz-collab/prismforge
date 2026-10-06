@@ -191,6 +191,15 @@ bool ExactFieldsExceptEventEqual(const MusicalStateFrameV1& left,
   return ExactFieldsEqual(normalizedLeft, normalizedRight);
 }
 
+bool ExactFieldsExceptSourceEqual(const MusicalStateFrameV1& left,
+                                  const MusicalStateFrameV1& right) {
+  MusicalStateFrameV1 normalizedLeft = left;
+  MusicalStateFrameV1 normalizedRight = right;
+  normalizedLeft.sourceSampleIndex = 0;
+  normalizedRight.sourceSampleIndex = 0;
+  return ExactFieldsEqual(normalizedLeft, normalizedRight);
+}
+
 void RequireFiniteAndBounded(const MusicalStateFrameV1& frame) {
   const std::array normalized{
       frame.immediateEnergy, frame.onsetEnvelope, frame.accentEnvelope,
@@ -333,22 +342,83 @@ float RangeMean(const std::vector<MusicalStateFrameV1>& frames,
   return static_cast<float>(sum / static_cast<double>(end - begin));
 }
 
+float RangeMin(const std::vector<MusicalStateFrameV1>& frames,
+               std::size_t begin, std::size_t end,
+               float MusicalStateFrameV1::*field) {
+  Require(begin < end && end <= frames.size(), "Invalid semantic range");
+  float result = frames[begin].*field;
+  for (std::size_t index = begin + 1; index < end; ++index) {
+    result = std::min(result, frames[index].*field);
+  }
+  return result;
+}
+
+std::size_t CountEventTransitions(
+    const std::vector<MusicalStateFrameV1>& frames) {
+  std::size_t transitions = 0;
+  std::uint64_t previous = 0;
+  for (const auto& frame : frames) {
+    if (frame.eventId != 0 && frame.eventId != previous) ++transitions;
+    previous = frame.eventId;
+  }
+  return transitions;
+}
+
+std::size_t FirstIndexAbove(
+    const std::vector<MusicalStateFrameV1>& frames, std::size_t begin,
+    std::size_t end, float MusicalStateFrameV1::*field, float threshold) {
+  Require(begin < end && end <= frames.size(), "Invalid semantic range");
+  for (std::size_t index = begin; index < end; ++index) {
+    if (frames[index].*field > threshold) return index;
+  }
+  return frames.size();
+}
+
+bool HasDifferentEvent(const std::vector<MusicalStateFrameV1>& frames,
+                       std::size_t begin, std::size_t end,
+                       std::uint64_t reference) {
+  Require(begin < end && end <= frames.size(), "Invalid semantic range");
+  for (std::size_t index = begin; index < end; ++index) {
+    if (frames[index].eventId != 0 && frames[index].eventId != reference) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void VerifyFixtureSemantics(const std::array<FixtureReplay, 8>& replay) {
   const auto& silence = replay[0].states;
   Require(RangeMean(silence, 180, 240, &MusicalStateFrameV1::calm) > 0.75f,
           "Silence did not settle into calm");
+  Require(RangeMean(silence, 180, 240, &MusicalStateFrameV1::calm) >
+              RangeMean(silence, 0, 60, &MusicalStateFrameV1::calm) + 0.45f,
+          "Calm did not rise progressively during silence");
   Require(RangeMax(silence, 180, 240,
                    &MusicalStateFrameV1::immediateEnergy) < 0.03f,
           "Silence retained immediate energy");
+  Require(RangeMax(silence, 0, silence.size(),
+                   &MusicalStateFrameV1::peak) < 0.001f &&
+              RangeMax(silence, 0, silence.size(),
+                       &MusicalStateFrameV1::release) < 0.001f,
+          "Silence generated a phantom peak or release");
+  Require(CountEventTransitions(silence) <= 1,
+          "Silence churned committed-state event IDs");
 
   const auto& lowGroove = replay[1].states;
   Require(RangeMean(lowGroove, 240, 360,
                     &MusicalStateFrameV1::grooveEnergy) >
-              RangeMean(silence, 120, 240,
-                        &MusicalStateFrameV1::grooveEnergy) + 0.05f,
-          "Steady low groove did not establish groove memory");
+              RangeMean(lowGroove, 0, 120,
+                        &MusicalStateFrameV1::grooveEnergy) + 0.20f,
+          "Steady low groove did not develop progressively");
+  Require(RangeMin(lowGroove, 300, 360,
+                   &MusicalStateFrameV1::grooveEnergy) > 0.35f,
+          "Steady low groove did not persist between hits as a motion driver");
   Require(lowGroove.back().sustainedEnergy > silence.back().sustainedEnergy,
           "Steady low groove did not retain more energy than silence");
+  Require(RangeMax(lowGroove, 0, lowGroove.size(),
+                   &MusicalStateFrameV1::peak) < 0.05f &&
+              CountEventTransitions(lowGroove) <= 1,
+          "Steady low-groove hits behaved like unrelated peak events");
 
   const auto& transients = replay[2].states;
   Require(RangeMax(transients, 0, transients.size(),
@@ -359,6 +429,13 @@ void VerifyFixtureSemantics(const std::array<FixtureReplay, 8>& replay) {
           "Repeated transients did not establish groove memory");
   Require(transients[330].grooveEnergy > transients[30].grooveEnergy,
           "Repeated transient groove did not accumulate over time");
+  Require(transients[300].onsetEnvelope >
+              transients[329].onsetEnvelope + 0.45f,
+          "Repeated transient onset did not decay between hits");
+  Require(RangeMax(transients, 0, transients.size(),
+                   &MusicalStateFrameV1::peak) < 0.25f &&
+              CountEventTransitions(transients) <= 2,
+          "Repeated transients continuously retriggered peak events");
 
   const auto& buildup = replay[3].states;
   Require(buildup.back().sustainedEnergy > buildup[120].sustainedEnergy + 0.25f,
@@ -368,6 +445,9 @@ void VerifyFixtureSemantics(const std::array<FixtureReplay, 8>& replay) {
           "Gradual buildup did not strengthen building confidence");
   Require(RangeMean(buildup, 420, 540, &MusicalStateFrameV1::energyTrend) > 0.0f,
           "Gradual buildup lost its positive trend");
+  Require(RangeMax(buildup, 0, buildup.size(),
+                   &MusicalStateFrameV1::peak) < 0.15f,
+          "Gradual buildup triggered a peak without a transition");
 
   const auto& drop = replay[4].states;
   Require(RangeMax(drop, 420, 540, &MusicalStateFrameV1::peak) >
@@ -375,19 +455,42 @@ void VerifyFixtureSemantics(const std::array<FixtureReplay, 8>& replay) {
           "Buildup-to-peak fixture did not distinguish the drop");
   Require(drop[450].immediateEnergy > drop[180].immediateEnergy,
           "Buildup-to-peak fixture lost impact contrast");
+  const std::size_t buildingIndex = FirstIndexAbove(
+      drop, 0, 420, &MusicalStateFrameV1::building, 0.50f);
+  const std::size_t peakIndex = FirstIndexAbove(
+      drop, 420, drop.size(), &MusicalStateFrameV1::peak, 0.50f);
+  Require(buildingIndex < peakIndex && peakIndex < drop.size(),
+          "Buildup did not precede the peak transition");
+  Require(RangeMax(drop, 420, 560, &MusicalStateFrameV1::peak) >
+              RangeMax(transients, 0, transients.size(),
+                       &MusicalStateFrameV1::peak) + 0.35f,
+          "Buildup-qualified peak was not stronger than ordinary transients");
+  Require(drop[419].eventId != 0 &&
+              HasDifferentEvent(drop, 420, 480, drop[419].eventId),
+          "Buildup-to-peak transition did not mint a deterministic event ID");
 
   const auto& release = replay[5].states;
   const float releaseBefore = RangeMax(
-      release, 0, 100, &MusicalStateFrameV1::release);
+      release, 0, 300, &MusicalStateFrameV1::release);
   const float releaseAfter = RangeMax(
-      release, 140, 360, &MusicalStateFrameV1::release);
+      release, 360, 600, &MusicalStateFrameV1::release);
   if (!(releaseAfter > releaseBefore + 0.10f)) {
     std::ostringstream message;
     message << "Peak-to-release fixture did not create release confidence (before="
             << releaseBefore << ", after=" << releaseAfter << ')';
     throw std::runtime_error(message.str());
   }
-  Require(release.back().sustainedEnergy < release[120].sustainedEnergy,
+  Require(RangeMax(release, 120, 300, &MusicalStateFrameV1::peak) >
+              RangeMax(release, 480, 600,
+                       &MusicalStateFrameV1::peak) + 0.40f,
+          "Peak-to-release fixture did not let peak confidence fall");
+  Require(release.back().release > release.back().peak + 0.10f &&
+              release.back().release > 0.12f,
+          "Release did not persist longer than the peak");
+  Require(RangeMax(release, 210, 300,
+                   &MusicalStateFrameV1::calm) < 0.11f,
+          "Peak-to-release output snapped directly to calm");
+  Require(release.back().sustainedEnergy < release[210].sustainedEnergy,
           "Peak-to-release fixture did not decay sustained energy");
 
   const auto& isolated = replay[6].states;
@@ -397,6 +500,12 @@ void VerifyFixtureSemantics(const std::array<FixtureReplay, 8>& replay) {
           "Isolated transient onset did not decay");
   Require(isolated.back().calm > isolated[90].calm,
           "Isolated transient did not return toward calm");
+  Require(RangeMax(isolated, 0, isolated.size(),
+                   &MusicalStateFrameV1::grooveEnergy) < 0.15f &&
+              RangeMax(isolated, 0, isolated.size(),
+                       &MusicalStateFrameV1::peak) < 0.15f &&
+              CountEventTransitions(isolated) <= 1,
+          "Isolated transient fabricated sustained groove or peak state");
 
   const auto& loud = replay[7].states;
   Require(loud.back().sustainedEnergy > 0.75f,
@@ -406,6 +515,12 @@ void VerifyFixtureSemantics(const std::array<FixtureReplay, 8>& replay) {
   Require(RangeMean(loud, 360, 600, &MusicalStateFrameV1::driving) >
               RangeMean(silence, 0, 240, &MusicalStateFrameV1::driving) + 0.30f,
           "Sustained loud fixture did not become driving");
+  Require(loud[30].onsetEnvelope > loud[120].onsetEnvelope + 0.80f,
+          "Initial loud transition did not differ from the sustained state");
+  Require(RangeMax(loud, 0, loud.size(),
+                   &MusicalStateFrameV1::peak) < 0.25f &&
+              CountEventTransitions(loud) <= 2,
+          "Sustained loud input generated repeated false peak events");
 }
 
 SignalFrameV1 MakeSignal(std::uint64_t sampleIndex, float rms = 0.0f) {
@@ -418,6 +533,33 @@ SignalFrameV1 MakeSignal(std::uint64_t sampleIndex, float rms = 0.0f) {
   signal.highs = rms * 0.5f;
   signal.bands.fill(rms);
   return signal;
+}
+
+void VerifySilenceDecay(const std::vector<SignalFrameV1>& silenceSignals) {
+  MusicalStateEngine engine;
+  const auto energetic = engine.Advance(MakeSignal(0, 0.80f));
+  std::vector<MusicalStateFrameV1> decay;
+  decay.reserve(silenceSignals.size());
+  for (const auto& signal : silenceSignals) {
+    decay.push_back(engine.Advance(signal));
+  }
+  Require(decay.front().sustainedEnergy < energetic.sustainedEnergy,
+          "Silence did not begin decaying prior energy");
+  Require(decay.back().sustainedEnergy < decay.front().sustainedEnergy * 0.30f,
+          "Silence did not substantially decay prior energy");
+  Require(decay.back().calm > decay.front().calm + 0.10f,
+          "Calm did not recover while prior energy decayed");
+}
+
+void RequireCleanRebase(const MusicalStateFrameV1& frame,
+                        std::string_view context) {
+  Require(frame.eventId == 0 && frame.onsetEnvelope == 0.0f &&
+              frame.accentEnvelope == 0.0f && frame.grooveEnergy == 0.0f &&
+              frame.energyTrend == 0.0f && frame.calm == 0.0f &&
+              frame.building == 0.0f && frame.driving == 0.0f &&
+              frame.peak == 0.0f && frame.release == 0.0f &&
+              frame.slowStateAge == 0.0f,
+          context);
 }
 
 void VerifyMalformedAndClockEdges() {
@@ -464,13 +606,35 @@ void VerifyMalformedAndClockEdges() {
   Require(ExactFieldsEqual(beforeDuplicate, afterDuplicate),
           "Duplicate sample index changed state");
 
+  // Duplicate-index identity has precedence over payload consistency. Even a
+  // counter rewind on the same analyzer publication is ignored exactly; once
+  // the source clock advances, that rewind becomes an explicit reconnect.
+  SignalFrameV1 rewoundDuplicate = MakeSignal(1600, 0.0f);
+  rewoundDuplicate.hitCount = 0;
+  rewoundDuplicate.accentCount = 0;
+  const auto afterRewoundDuplicate = duplicate.Advance(rewoundDuplicate);
+  Require(ExactFieldsEqual(beforeDuplicate, afterRewoundDuplicate),
+          "Counter rewind overrode duplicate-index exactness");
+
   SignalFrameV1 jump = MakeSignal(48000ULL * 3600ULL, 1.0f);
-  jump.hitCount = onset.hitCount;
-  jump.accentCount = onset.accentCount;
+  jump.hitCount = 0;
+  jump.accentCount = 0;
   const auto afterJump = duplicate.Advance(jump);
   RequireFiniteAndBounded(afterJump);
   Require(afterJump.sourceSampleIndex == jump.sampleIndex,
           "Large sample jump lost source identity");
+  RequireCleanRebase(afterJump,
+                     "Advanced counter rewind did not cleanly rebase state");
+
+  MusicalStateEngine cappedGap;
+  MusicalStateEngine largeGap;
+  (void)cappedGap.Advance(MakeSignal(800, 0.4f));
+  (void)largeGap.Advance(MakeSignal(800, 0.4f));
+  const auto cappedStep = cappedGap.Advance(MakeSignal(12'800, 0.0f));
+  const auto largeStep = largeGap.Advance(
+      MakeSignal(48'000ULL * 3'600ULL, 0.0f));
+  Require(ExactFieldsExceptSourceEqual(cappedStep, largeStep),
+          "Large sample gap did not match the configured bounded time step");
 
   MusicalStateEngine counters;
   SignalFrameV1 countAnchor = MakeSignal(800, 0.04f);
@@ -493,23 +657,40 @@ void VerifyMalformedAndClockEdges() {
   countReset.hitCount = 0;
   countReset.accentCount = 0;
   const auto afterCounterReset = counters.Advance(countReset);
-  Require(afterCounterReset.eventId == 0 && afterCounterReset.onsetEnvelope == 0.0f,
-          "Counter reset replayed a stale onset");
+  RequireCleanRebase(afterCounterReset,
+                     "Counter reset replayed phantom musical state");
 
   SignalFrameV1 afterReset = MakeSignal(3200, 0.3f);
-  afterReset.hitCount = 1;
-  afterReset.accentCount = 1;
+  afterReset.hit = true;
+  afterReset.accent = true;
+  afterReset.hitCount = 0;
+  afterReset.accentCount = 0;
   const auto recovered = counters.Advance(afterReset);
   RequireFiniteAndBounded(recovered);
+  Require(recovered.onsetEnvelope == 0.0f &&
+              recovered.accentEnvelope == 0.0f && recovered.peak < 0.05f,
+          "Held reconnect flags generated a phantom event after counter reset");
 
   MusicalStateEngine rewind;
   (void)rewind.Advance(MakeSignal(800, 0.01f));
   (void)rewind.Advance(MakeSignal(1600, 0.5f));
-  const auto rewound = rewind.Advance(MakeSignal(400, 0.5f));
-  Require(rewound.sourceSampleIndex == 400 && rewound.eventId == 0 &&
-              rewound.onsetEnvelope == 0.0f,
-          "Sample rewind did not cleanly rebase reconnect state");
-  RequireFiniteAndBounded(rewind.Advance(MakeSignal(1200, 0.2f)));
+  SignalFrameV1 rewindFrame = MakeSignal(400, 0.5f);
+  rewindFrame.hit = true;
+  rewindFrame.accent = true;
+  rewindFrame.hitCount = 99;
+  rewindFrame.accentCount = 99;
+  const auto rewound = rewind.Advance(rewindFrame);
+  Require(rewound.sourceSampleIndex == 400,
+          "Sample rewind lost its new source anchor");
+  RequireCleanRebase(rewound,
+                     "Sample rewind replayed phantom reconnect state");
+  rewindFrame.sampleIndex = 1200;
+  const auto rewindRecovered = rewind.Advance(rewindFrame);
+  RequireFiniteAndBounded(rewindRecovered);
+  Require(rewindRecovered.onsetEnvelope == 0.0f &&
+              rewindRecovered.accentEnvelope == 0.0f &&
+              rewindRecovered.peak < 0.05f,
+          "Held reconnect flags generated a phantom event after sample rewind");
 
   MusicalStateEngine held;
   (void)held.Advance(MakeSignal(800, 0.0f));
@@ -553,6 +734,32 @@ void VerifyMalformedAndClockEdges() {
   const auto highRateStep = highRate.Advance(MakeSignal(2400, 0.8f));
   Require(lowRateStep.sustainedEnergy > highRateStep.sustainedEnergy,
           "Sample rate did not scale sample-clock elapsed time");
+}
+
+void VerifyRenderCadenceIndependence(
+    const std::vector<SignalFrameV1>& signals) {
+  MusicalStateEngineConfig config{};
+  config.seed = kReplaySeed;
+  MusicalStateEngine sourceCadence(config);
+  MusicalStateEngine fasterRenderCadence(config);
+  for (const auto& signal : signals) {
+    const auto sourceFrame = sourceCadence.Advance(signal);
+    const auto renderFrame = fasterRenderCadence.Advance(signal);
+    Require(ExactFieldsEqual(sourceFrame, renderFrame),
+            "Render cadence changed the advancing musical-state sequence");
+
+    SignalFrameV1 duplicate = signal;
+    duplicate.rms = signal.rms > 0.5f ? 0.0f : 1.0f;
+    duplicate.peak = signal.peak > 0.5f ? 0.0f : 1.0f;
+    duplicate.bands.fill(1.0f);
+    duplicate.hit = !signal.hit;
+    duplicate.accent = !signal.accent;
+    duplicate.hitCount += 10'000;
+    duplicate.accentCount += 10'000;
+    const auto extraRenderFrame = fasterRenderCadence.Advance(duplicate);
+    Require(ExactFieldsEqual(renderFrame, extraRenderFrame),
+            "Extra same-timestamp render publication changed musical state");
+  }
 }
 
 void VerifySeedIsolation(const std::vector<SignalFrameV1>& signals) {
@@ -618,15 +825,15 @@ int main() {
         FixtureSpec{"repeated transient groove", "c_repeated_transient_groove.csv", 360,
                     0x8602c2dee9ddc7baULL},
         FixtureSpec{"gradual buildup", "d_gradual_buildup.csv", 600,
-                    0x0a012a0b745a3492ULL},
+                    0xae2b3cd1dfe807eaULL},
         FixtureSpec{"buildup to peak", "e_buildup_to_peak.csv", 600,
-                    0xcd58f9cbb68e9ed8ULL},
+                    0x86242b387ed87ea2ULL},
         FixtureSpec{"peak to release", "f_peak_to_release.csv", 600,
-                    0x5935f65e8b2ae7f5ULL},
+                    0xe536f2572e29b28aULL},
         FixtureSpec{"isolated transient", "g_isolated_transient.csv", 240,
                     0x93f657eec4beaebdULL},
         FixtureSpec{"sustained loud", "h_sustained_loud.csv", 600,
-                    0xec5a50e8405f0c1aULL},
+                    0x1f29e40b49eb5c63ULL},
     };
 
     std::array<FixtureReplay, specs.size()> replay{};
@@ -634,7 +841,9 @@ int main() {
       replay[index] = ReplayFixture(specs[index]);
     }
     VerifyFixtureSemantics(replay);
+    VerifySilenceDecay(replay[0].signals);
     VerifyMalformedAndClockEdges();
+    VerifyRenderCadenceIndependence(replay[4].signals);
     VerifySeedIsolation(replay[4].signals);
     VerifyBoundedLongRun();
     std::cout << "PrismForge musical-state replay tests passed\n";

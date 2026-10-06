@@ -354,13 +354,33 @@ void MusicalStateEngine::UpdateSlowState(float dt) noexcept {
     }
   }
 
+  // Peak is intentionally shorter than the sustained driving confidence that
+  // surrounds it. Give a strong, buildup-qualified peak a bounded priority
+  // window so it can become an observable dwell-qualified event instead of
+  // being masked forever by the slower driving follower. Once committed, hold
+  // it only while meaningful peak confidence remains; release/driving can then
+  // take over through their normal dwell rules.
+  constexpr float kPeakEnterConfidence = 0.52f;
+  constexpr float kPeakHoldConfidence = 0.30f;
+  constexpr float kPeakPriorityMargin = 0.28f;
+  const bool holdCommittedPeak = slowState_ == SlowState::peak &&
+      frame_.peak >= kPeakHoldConfidence;
+  const bool enterPeak = slowState_ != SlowState::peak &&
+      frame_.peak >= kPeakEnterConfidence &&
+      frame_.peak + kPeakPriorityMargin >= selectedScore;
+  if (holdCommittedPeak || enterPeak) {
+    selected = SlowState::peak;
+    selectedScore = frame_.peak;
+  }
+
   // A committed state owns a small hysteresis margin. This affects only event
   // boundaries/age; the continuous confidence fields above remain untouched.
   if (slowState_ == SlowState::none) {
     if (selectedScore < 0.42f) selected = SlowState::none;
   } else {
     const float currentScore = scores[static_cast<std::size_t>(slowState_)];
-    if (selected != slowState_ &&
+    const bool qualifiedPeakEntry = selected == SlowState::peak && enterPeak;
+    if (selected != slowState_ && !qualifiedPeakEntry &&
         (selectedScore < 0.36f || selectedScore < currentScore + 0.09f)) {
       selected = slowState_;
     }

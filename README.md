@@ -17,6 +17,9 @@ operator's reference clips informed original scenes without bundling footage.
 The source-only [musical interpretation contract](docs/MUSICAL_STATE.md)
 documents the deterministic `SignalFrameV1` to `MusicalStateFrameV1` boundary,
 replay fixtures, and Recursive Circuit rollback flag.
+The [Recursive Circuit live-audition gate](docs/MUSICAL_STATE_AUDITION.md)
+defines the supervised candidate/legacy comparison without changing Resolume,
+PrismBurst, or physical audio routing.
 
 ## Build on Windows
 

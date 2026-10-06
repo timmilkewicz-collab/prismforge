@@ -25,6 +25,10 @@ $teaserGuide = Join-Path $repository 'docs\SHOW_TEASER.md'
 if (-not (Test-Path -LiteralPath $teaserGuide -PathType Leaf)) {
     throw "Show teaser guide is missing: $teaserGuide"
 }
+$musicalMonitor = Join-Path $repository 'tools\watch-musical-state.ps1'
+if (-not (Test-Path -LiteralPath $musicalMonitor -PathType Leaf)) {
+    throw "Musical-state monitor is missing: $musicalMonitor"
+}
 
 if (-not $OutputDirectory) {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -54,6 +58,7 @@ $packageTools = Join-Path $destination 'tools'
 New-Item -ItemType Directory -Path $packageTools | Out-Null
 Copy-Item -LiteralPath (Join-Path $repository 'tests\audio-signal-smoke.ps1') `
     -Destination $packageTools
+Copy-Item -LiteralPath $musicalMonitor -Destination $packageTools
 
 $hashes = Get-ChildItem -LiteralPath $destination -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |

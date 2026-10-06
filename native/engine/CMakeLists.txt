@@ -41,6 +41,7 @@ add_executable(PrismForge.Engine
   MidiBridge.cpp
   OscBridge.cpp
   PipeServer.cpp
+  SignalTelemetry.cpp
   ShowStore.cpp
   SpoutRender.cpp)
 target_compile_definitions(PrismForge.Engine PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
