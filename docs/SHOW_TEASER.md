@@ -1,116 +1,131 @@
-# PrismForge weekend teaser — operator runbook
+# PrismForge live teaser — operator runbook
 
-**Status: candidate, not show-cleared.** The first automated twelve-scene tour was
-rejected as visually uninteresting. The current live feature is **Mirror
-Cathedral**, an original dark architectural scene with four live shape controls.
-Use **Neon Orbs** or **Shardwell** as a contrasting second deck; Hex Vortex and
-Ferrofluid Reactor remain alternatives. The operator's clips informed the art
-direction but are not included in PrismForge. Play it by hand in Control and
-mix live in Resolume; do not run the old automated tour. No
-standalone backup video was requested. Keep PrismBurst as the known live
-fallback; do not change its checkout, shortcuts, settings, or controller routing.
-Arena recovered from a transient Spout interop warning during rapid sender
-replacement and displayed both new scenes, but the fault is not root-caused.
-Do not treat this candidate as on-air ready until the go/no-go checks below
-pass on the intended show rig and output.
+**Status: supervised garage-preview alpha, not show-cleared.** The current
+portable package is `dist/PrismForge-alpha-20261005-233633`. Its Engine is
+running with `--no-persist` alongside matching Control; Recursive Circuit is
+on deck A, Maono MIC In 1/2 is receiving music, and Resolume Arena displays the
+`PrismForge` Spout sender in an **unsaved** composition. The NestDrop clip on
+the higher Layer 3 was **stopped, not removed** to expose PrismForge; this
+does not establish that the NestDrop application is closed. Do not save or
+rearrange that composition merely to run this preview.
+
+The operator reports that the new motion is a real improvement, but that the
+look remains far short of NestDrop's fluidity and evolving color and shape.
+Treat this as an art-direction checkpoint, not a performance or safety sign-off.
+Play by hand in Control and mix in Resolume; do not run the rejected automated
+twelve-scene tour. Keep PrismBurst as the known live fallback, with its checkout,
+shortcuts, settings and controller routing untouched. No standalone backup
+video was requested.
+
+## Evidence for this exact alpha
+
+- The source build compiled **18 original scene shaders × 4 quality tiers**
+  with warnings as errors. The portable folder passed **50/50 SHA-256** file
+  checks and exact-package IPC smoke. These are build/package checks, not a
+  venue acceptance test.
+- After the approved brief restart, only the verified older PrismForge
+  Engine/Control were replaced. An independent Spout receiver counted **597
+  fresh 1920×1080 BGRA8 frames in 10 seconds**; Engine status was near
+  **60 fps at tier 0**. Arena visibly displayed Recursive Circuit and Maono
+  MIC In 1/2 delivered live audio. Receiver cadence and Engine telemetry do
+  **not** measure Arena's final output FPS.
+- The current Engine has no time limit but uses `--no-persist`, protecting the
+  existing autosave. Closing Control does not stop this Engine or its sender.
+  The existing Arena composition remains unsaved.
 
 ## Go/no-go before putting it on air
 
-Use only a newly built, separate portable folder after **all** of these pass
-for that exact folder, not just for source or a previous alpha:
+**Do not call this alpha show-cleared on the evidence above.** On the intended
+rig and actual output, an operator must still:
 
-1. Release build, native CTest, Control frontend/.NET tests, packaged IPC smoke,
-   and all **17 scene shaders × 4 quality tiers** compile successfully. Verify
-   every packaged file against its `SHA256SUMS.txt`; keep the prior folder
-   `dist/PrismForge-alpha-20260922-161109` unchanged.
-2. Confirm the running Engine executable path points into the new folder. One
-   Engine owns the `PrismForge` sender; launching another folder may simply
-   reconnect to the old process. Confirm the independent Spout receiver sees
-   changing **1920×1080 BGRA8** frames, and Resolume itself displays Mirror
-   Cathedral plus the chosen second scene without freezes or shader errors.
-   Sweep all four scene controls at the intended quality tier and check **Resolume's output FPS**
-   during crossfades and macro sweeps; receiver cadence alone is not that test.
-   Do not run an older same-name GPU probe or rapidly replace the sender while
-   Arena is connected; the current isolated test probe uses
-   `PrismForge.EffectProbe` instead. Do not hot-reload shaders while the
-   PrismForge layer is on air: recompiling all scene/tier variants pauses the
-   render thread.
-3. Rehearse the intended short segment with the actual projector/LED preview:
-   Mirror Cathedral's different silhouette states, the intended second deck,
-   Control disconnect/reconnect, macro reset, Panic
-   dim, Blackout, and the separate Resolume clip/layer cut must work. Observe
-   for rapid luminance changes, discomfort, dropped frames, and overheating.
-   If any occurs, keep PrismForge off air.
-4. If audio reaction is part of the teaser, test the **actual** FL Studio/
-   system-loopback or Maono/interface source with music: verify Control reports
-   `audio.receiving`, its meter moves, and Mirror Cathedral visibly changes
-   with music versus paused; check no clipping and source switching/recovery,
-   and stable Resolume output. Otherwise run visual-only with `--no-audio` and
-   manipulate the macros manually. Do not use Launchpad S for this teaser;
-   its physical input/LED and coexistence checks are still pending.
+1. Confirm the running Engine and Control executable paths both point into
+   `PrismForge-alpha-20261005-233633`. One Engine owns the `PrismForge` sender;
+   starting a different package may reconnect Control to the old Engine.
+   Confirm Arena is showing the intended PrismForge clip, not the stopped
+   NestDrop Layer 3 clip or a window capture.
+2. With a deliberately controlled music-playing versus music-paused test,
+   confirm Maono `audio.receiving`, sensible meter/headroom, audible-source
+   identity, and visible Recursive Circuit response/recovery. The prior live
+   signal and subjective motion report do not substitute for this comparison.
+   Check for clipping before raising visual gain; a later preview RMS sample
+   reached 0.84. Recheck if the endpoint or routing changes.
+3. Measure **Arena's own output FPS** while performing the intended deck
+   crossfades, Recursive Circuit's Branching/Flow/Depth/Charge controls and
+   master macros. The 597-frame receiver pass and near-60 Engine fps are
+   sender-side evidence only. Rehearse a Resolume clip/layer cut, Control
+   reconnect, Panic dim and Blackout before bringing the layer on air.
+4. Inspect the actual projector/LED preview for uncomfortable luminance
+   changes, overheating, stalls and dropped frames. PrismForge has **no GPU
+   flash-risk meter, venue-safe profile or soft limiter**; this checklist is
+   not a flash-safety guarantee or medical/regulatory certification. The
+   one-hour mixed two-deck/overlay/audio/controller soak and end-to-end
+   latency measurement are also still open. If any check fails, keep the
+   PrismForge layer off air.
 
-These checks authorize, at most, a short supervised teaser. The one-hour
-two-deck/overlay/audio/controller soak, end-to-end latency proof, venue-safe
-profile, and GPU flash-risk meter have **not** passed or do not exist. The
-controls below are conservative starting points, not a flash-safety guarantee
-or medical/regulatory certification. The operator and venue must be able to
-cut the output immediately. Engine FPS telemetry measures its render-loop
-cadence, not Arena's final output rate; the adaptive governor currently uses
-CPU submission time rather than GPU timestamp timing.
+These gates permit, at most, a short supervised teaser if the operator and
+venue accept the remaining risk and can cut the output immediately. **Do not
+assign the Launchpad S to PrismForge for this preview**: physical input, LED
+color, coexistence and reconnect acceptance remain unverified. The adaptive
+governor currently uses CPU render-submission time rather than GPU completion
+timing. A transient Arena Spout interop warning occurred during an earlier
+rapid sender replacement and has not been root-caused; avoid rapid sender
+swaps while Arena is connected.
 
 ## Preflight and play
 
-1. Leave the existing Resolume composition and PrismBurst fallback intact.
-   Put `Sources → Spout Servers → PrismForge` in a spare clip/layer and keep
-   that layer off air until checked. Do not overwrite the saved composition.
-   If the source is absent, do not replace it with window capture and call that
-   a Spout pass.
-2. In a PowerShell window opened in the **new, hash-verified package**, run
-   `.\PrismForge.Engine.exe --no-audio --no-persist` for the visual-only
-   rehearsal; keep that window open. Omit `--no-audio` only after the real
-   source test above passes. `--no-persist` protects the existing autosave and
-   disables portable show saves for this run. Open `PrismForge.Control.exe`
-   from the **same** package. Do not add `--launchpad`.
-3. Confirm Control says connected, its sender name is `PrismForge`, and Arena
-   visibly receives a changing image at 1920×1080. The UI's
-   `spout.connected` field is not receiver telemetry; trust Arena's preview
-   and the independent receiver. Only one named-pipe client can connect at a
-   time: close Control before running an IPC smoke/CLI client, then reopen it.
-   If the Performance macros say **Requires matching Engine**, the Control
-   has connected to an older Engine: keep PrismForge off air and verify the
-   exact Engine path rather than using those disabled controls.
-4. In Control, select the featured **Mirror Cathedral** on deck A and **Neon
-   Orbs** on deck B. A manual Arena preview found a more monolithic Mirror
-   silhouette around Symmetry **8%**, Depth **82%**, Aperture **22%**, Line
-   width **78%**; the neutral 50% positions make a denser portal. These are
-   artistic starting points, not validated safety limits. Start with the
-   crossfader fully on A, four Performance macros at **0%**, per-deck effects
-   at 0%, and the Resolume clip/layer still off air. Keep Shardwell available
-   as the dense alternative. Bring the Resolume layer up only after the
-   preview is acceptable.
-5. Build movement gradually. Suggested *starting* bounds: Motion **0–35%**,
-   Warp **0–25%**, Trails **0–20%**, Color **0–25%**; avoid pushing them all
-   high together. Motion drives scene speed, Warp bends geometry, Trails adds
-   bounded history, and Color intensifies the palette. Crossfade slowly
-   between the two scenes rather than parking at 50%, which looked dim in a
-   development preview. Neon Orbs intentionally leaves much of the frame
-   black; if layering it over other Resolume clips, choose and rehearse the
-   blend mode in Arena rather than assuming black is transparent. Use **RESET**
-   to return all macros to neutral.
-   These percentages are rehearsal guidance, not validated safety limits.
+1. Keep the current Resolume composition and PrismBurst route intact. The
+   `PrismForge` Spout source is already visible in Arena; its clip must remain
+   off air until the checks above pass. The stopped NestDrop clip on Layer 3
+   remains available and was not deleted. Do not overwrite a saved composition.
+   If the Spout source disappears, do not substitute window capture and call
+   it a Spout pass.
+2. **Do not launch a second Engine just to start playing.** If the current
+   Engine/Control are no longer running, verify exact process paths and use
+   `.\PrismForge.Engine.exe --no-persist` and
+   `.\PrismForge.Control.exe` from the same hash-verified
+   `dist/PrismForge-alpha-20261005-233633` folder. Do not add `--no-audio`
+   for a music-reactive test or `--launchpad` for this teaser. `--no-persist`
+   prevents this session from changing the existing autosave or saving a
+   portable show. Avoid recompiling/hot-reloading shaders while its layer is
+   on air: compilation pauses the render thread.
+3. Confirm Control is connected to the matching Engine, its sender is
+   `PrismForge`, Maono MIC In 1/2 is receiving, and Arena visibly receives a
+   changing 1920×1080 image. The UI's `spout.connected` field is Engine
+   telemetry, not receiver proof. Only one named-pipe client connects at a
+   time; close Control before an IPC CLI smoke and reopen it afterward. If
+   master controls say **Requires matching Engine**, keep PrismForge off air
+   and resolve the version/path mismatch.
+4. Keep Recursive Circuit on deck A and start with the crossfader fully on A.
+   Its Branching, Flow, Depth and Charge controls are live shape controls;
+   make small changes and watch the actual output. A second deck can use
+   Mirror Cathedral, Shardwell or Neon Orbs for a rehearsed contrast, but no
+   particular B-deck pairing has been accepted for this alpha. Start the
+   master macros and per-deck effects at **0%**, then introduce Motion,
+   Warp, Trails and Color gradually. Do not push all four high together.
+   These are rehearsal starting points, not validated safety limits. Reset
+   macros before troubleshooting a surprising look.
+5. Bring the Resolume PrismForge layer up only after the projector/LED preview
+   and final-output cut are checked. Mix deliberately; an earlier 50/50
+   crossfade looked dimmer than a full-deck cut, and black in Neon Orbs is
+   not automatically transparent. Rehearse Arena's blend mode if layering
+   clips. Keep a hand on the independent Resolume cut throughout.
 
 ## Abort and rollback
 
 - The **Resolume clip/layer cut is the independent final-output stop**. If
-  visuals become uncomfortable, unstable, or Control disconnects, take that
-  layer off air first. In Control, **Panic dim** reduces intensity; **Blackout**
-  cuts PrismForge's output to black. Test both before the audience arrives.
-- Do not assume closing Control stops the sender: Engine continues rendering.
-  Once PrismForge is off air, stop only the Engine whose executable path was
-  verified in the new package (Ctrl+C in its own terminal). Never kill a
-  healthy PrismBurst process or another Engine by name alone.
-- If the new build fails, keep it off air and return to the existing PrismBurst
-  route in Resolume. The preserved prior PrismForge alpha can serve as a
-  technical rollback for comparison, **not** as a show-approved replacement;
-  its original look was rejected. Do not replace shortcuts, install anything,
-  or alter the saved Resolume composition as part of rollback.
+  output becomes uncomfortable, unstable, or Control disconnects, cut that
+  layer first. In Control, **Panic dim** reduces intensity and **Blackout**
+  makes PrismForge output black; neither replaces the independent Arena cut.
+- Do not assume closing Control stops the sender. Once PrismForge is off air,
+  stop only the Engine whose executable path was verified in the current
+  package, preferably with Ctrl+C in its own terminal. Never kill a healthy
+  PrismBurst process or an Engine by name alone.
+- If the new look or runtime fails, leave PrismForge off air and return to
+  the existing PrismBurst route in Resolume. Preserve
+  `dist/PrismForge-alpha-20261005-224222` as the prior Recursive Circuit
+  technical comparison; its first look was rejected as too static. Earlier
+  `dist/PrismForge-alpha-20260922-220042` and the historically preserved
+  `dist/PrismForge-alpha-20260922-161109` are development/rollback artifacts,
+  **not** show-approved alternatives. Do not replace shortcuts, install
+  anything, delete the NestDrop clip, or change the saved Arena composition
+  during rollback.

@@ -40,6 +40,7 @@ set_target_properties(PrismForge.SpoutSpike PROPERTIES
 add_executable(PrismForge.EffectProbe
   effect_probe.cpp
   ../engine/SpoutRender.cpp
+  ../core/src/ReactiveMotion.cpp
 )
 target_compile_features(PrismForge.EffectProbe PRIVATE cxx_std_20)
 target_compile_definitions(PrismForge.EffectProbe PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)

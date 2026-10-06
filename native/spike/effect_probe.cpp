@@ -262,6 +262,111 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
   return true;
 }
 
+struct ReactiveSample {
+  std::uint64_t hash = 0;
+  double luma = 0.0;
+  std::array<std::uint32_t, 18 * 32> pixels{};
+};
+
+struct ReactiveTrace {
+  std::array<ReactiveSample, 39> samples{};
+};
+
+unsigned changed_grid_samples(const ReactiveSample& a,
+                              const ReactiveSample& b,
+                              unsigned minimum_channel_delta = 12) {
+  unsigned changed = 0;
+  for (unsigned index = 0; index < a.pixels.size(); ++index) {
+    unsigned channel_delta = 0;
+    for (unsigned channel = 0; channel < 3; ++channel) {
+      const unsigned shift = channel * 8;
+      channel_delta += static_cast<unsigned>(std::abs(
+          static_cast<int>((a.pixels[index] >> shift) & 0xffu) -
+          static_cast<int>((b.pixels[index] >> shift) & 0xffu)));
+    }
+    if (channel_delta >= minimum_channel_delta) ++changed;
+  }
+  return changed;
+}
+
+// Independent sender names keep these synthetic timelines away from both the
+// live PrismForge source and the main EffectProbe sender. The traces render
+// at <=100 ms steps so the reactive integrator's stall clamp is not mistaken
+// for its ordinary music response.
+bool capture_reactive_trace(const std::filesystem::path& shader_directory,
+                            ID3D11Device* device,
+                            ID3D11DeviceContext* context,
+                            const std::filesystem::path& capture_directory,
+                            std::string_view name, bool music, bool onset,
+                            ReactiveTrace& trace, std::string& error) {
+  const std::string sender_name = "PrismForge.EffectProbe." +
+      std::string(name);
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name.c_str());
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open reactive timeline Spout receiver";
+    return false;
+  }
+
+  ShowSnapshot show;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.crossfader = 0.0f;
+  const unsigned final_step = music ? 38u : 11u;
+  for (unsigned step = 0; step <= final_step; ++step) {
+    SignalFrameV1 signal{};
+    signal.rms = music ? 0.06f : 0.005f;
+    signal.bass = music ? 0.018f : 0.002f;
+    signal.mids = music ? 0.014f : 0.002f;
+    signal.highs = music ? 0.011f : 0.002f;
+    const unsigned hit_step = music ? 30u : 5u;
+    if (onset && step >= hit_step) signal.hitCount = 1;
+    if (onset && step == hit_step) {
+      signal.hit = true;
+      signal.accent = music;
+    }
+    const double seconds = static_cast<double>(step) * 0.1;
+    const bool checkpoint = step == 4 ||
+        (!music && (step == 5 || step == 6 || step == 10 || step == 11)) ||
+        (music && (step == 29 || step == 30 || step == 31 ||
+                   step == 34 || step == 38));
+    if (checkpoint) {
+      auto& sample = trace.samples[step];
+      if (!render_and_hash(renderer, receiver, device, context, show, seconds,
+                           sample.hash, error, {1.0f, 60}, &sample.luma,
+                           nullptr, &signal, nullptr, &sample.pixels)) {
+        receiver.ReleaseReceiver();
+        receiver.CloseDirectX11();
+        return false;
+      }
+      if (!capture_directory.empty() &&
+          ((step == 4 && !onset) || (step == 6 && onset && !music) ||
+           (step == 11 && onset && !music) ||
+           (step == 31 && onset && music) ||
+           (step == 38 && onset && music))) {
+        const auto path = capture_directory /
+            ("reactive-" + std::string(name) + "-" +
+             std::to_string(step) + ".bmp");
+        if (!capture_received_bmp(receiver, device, context, path)) {
+          error = "Could not capture reactive timeline frame";
+          receiver.ReleaseReceiver();
+          receiver.CloseDirectX11();
+          return false;
+        }
+      }
+    } else if (!renderer.Render(show, signal, {1.0f, 60}, seconds, error)) {
+      receiver.ReleaseReceiver();
+      receiver.CloseDirectX11();
+      return false;
+    }
+  }
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  return true;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -772,5 +877,67 @@ int main(int argc, char** argv) {
   receiver.ReleaseReceiver();
   receiver.CloseDirectX11();
   renderer.Shutdown();
+
+  // Compare matching timelines rather than a single frame before/after a
+  // beat. This distinguishes audio-driven geometry from ordinary time motion
+  // and checks that a real onset is still visible one tenth of a second later.
+  ReactiveTrace quiet;
+  ReactiveTrace quiet_onset;
+  ReactiveTrace music;
+  ReactiveTrace music_onset;
+  if (!capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "Quiet", false, false, quiet, error) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "QuietOnset", false, true, quiet_onset, error) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "Music", true, false, music, error) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "MusicOnset", true, true, music_onset, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  const unsigned music_response = changed_grid_samples(
+      quiet.samples[4], music.samples[4]);
+  const unsigned sustained_pulse = changed_grid_samples(
+      quiet.samples[6], quiet_onset.samples[6]);
+  const unsigned palette_phrase = changed_grid_samples(
+      music.samples[38], music_onset.samples[38]);
+  std::cout << "reactive_music_changed_samples=" << music_response
+            << " pulse_100ms_changed_samples=" << sustained_pulse
+            << " phrase_800ms_changed_samples=" << palette_phrase
+            << " quiet_music_luma_delta="
+            << std::abs(quiet.samples[4].luma - music.samples[4].luma)
+            << " phrase_luma_delta="
+            << std::abs(music.samples[38].luma - music_onset.samples[38].luma)
+            << '\n';
+  if (music_response < 12 || sustained_pulse < 8 || palette_phrase < 24 ||
+      std::abs(quiet.samples[4].luma - music.samples[4].luma) > 0.10 ||
+      std::abs(music.samples[38].luma - music_onset.samples[38].luma) > 0.10) {
+    std::cerr << "Reactive Circuit timeline lacked bounded music, onset, or "
+                 "phrase response\n";
+    return 3;
+  }
+  // Pulse decay is independently asserted in ReactiveMotion's scalar tests.
+  // Here the received image must keep changing after the onset while its
+  // average luminance stays bounded; integrated flow legitimately preserves
+  // a small phase difference after the pulse itself has decayed.
+  const unsigned onset_after_decay = changed_grid_samples(
+      quiet.samples[11], quiet_onset.samples[11]);
+  const double early_pulse_luma_delta = std::abs(
+      quiet.samples[6].luma - quiet_onset.samples[6].luma);
+  const double late_pulse_luma_delta = std::abs(
+      quiet.samples[11].luma - quiet_onset.samples[11].luma);
+  std::cout << "pulse_600ms_changed_samples=" << onset_after_decay
+            << " pulse_100ms_luma_delta=" << early_pulse_luma_delta
+            << " pulse_600ms_luma_delta=" << late_pulse_luma_delta
+            << '\n';
+  if (early_pulse_luma_delta < 0.00015 ||
+      early_pulse_luma_delta > 0.10 ||
+      late_pulse_luma_delta > early_pulse_luma_delta * 0.75)
+    return 3;
   return unchanged == 0 ? 0 : 2;
 }

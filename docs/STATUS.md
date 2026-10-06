@@ -13,8 +13,13 @@ that Resolume, an audio interface, or the installed live rig works.
   operator's video library as visual direction; no source footage or frames
   are included. Mirror Cathedral exposes live symmetry, depth, aperture and
   line-width controls per deck. Recursive Circuit is an original folded
-  liquid-circuit field with Branching, Flow, Depth and Charge controls; it is
-  a source candidate, not yet auditioned in the live Arena feed.
+  liquid-circuit field with Branching, Flow, Depth and Charge controls. Its
+  first candidate was auditioned in Arena; the operator liked its added
+  complexity but found its motion, fluidity and color/shape changes still far
+  short of NestDrop. The later `20261005-233633` portable alpha adds a
+  render-thread music envelope, a decaying onset, an audio-integrated flow
+  clock and eased palette/topology phrases. It is now under supervised live
+  audition, not show-cleared.
 - Fixed 1920×1080 BGRA8 D3D11 output and `PrismForge` Spout sender.
 - Four actual per-deck GPU effects: Bloom, Feedback, Kaleidoscope and Pixelate.
 - Four default-off master performance controls: Motion, Warp, Trails and Color,
@@ -110,6 +115,31 @@ that Resolume, an audio interface, or the installed live rig works.
   Shardwell and 458/576 for Recursive Circuit; all four new scene controls
   and each of bass, mids, highs and hit changed GPU pixels. These are
   synthetic checks, not an Arena or live-mic acceptance of the new build.
+- The `20261005-224222` alpha was then opened beside the existing Resolume
+  composition. A receiver saw 601 fresh 1920x1080 BGRA8 frames in ten seconds;
+  Engine status was about 60 fps at tier 0 with nonzero audio RMS. The active
+  NestDrop clip on the higher Resolume layer was stopped (not deleted) to
+  isolate Recursive Circuit. The operator's live visual verdict was improved
+  complexity, but insufficient musical motion, fluidity and color/shape
+  switching. This is feedback, not show acceptance.
+- The response pass keeps `SignalFrameV1` raw meter values intact
+  while deriving bounded visual energy, a 300 ms onset tail, integrated flow
+  and eased multi-phrase palette/topology transitions for Recursive Circuit.
+  Its isolated CPU/GPU fixtures passed before the exact package was built and
+  auditioned in the Resolume/Maono path.
+- The hash-verified `20261005-233633` package passed exact-package IPC smoke
+  and replaced only the verified older PrismForge Engine/Control after the
+  operator approved a brief restart. The unbounded `--no-persist` Engine and
+  matching Control remain live; the existing Arena composition was not saved.
+  The higher NestDrop clip was stopped, not removed, exposing Recursive
+  Circuit on Deck A. An independent receiver counted 597 fresh fixed-1080p
+  BGRA8 frames in ten seconds; Engine status stayed near 60 fps at tier 0.
+  Maono MIC In 1/2 was connected and receiving. The operator judged the new
+  motion a real improvement but still far below NestDrop's evolving looks.
+  Live RMS later spanned 0.02195–0.84279 during a music/interaction sample;
+  gain and clipping quality need checking. Windows memory use was 92.7–94.2%
+  during this preview, a rig headroom concern. Controlled music-versus-pause,
+  Arena output FPS, flash-risk and full mixed-load soak remain unverified.
 
 ## Not yet accepted for live use
 

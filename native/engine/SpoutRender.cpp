@@ -1,4 +1,5 @@
 #include "SpoutRender.h"
+#include "PrismForge/ReactiveMotion.h"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -177,13 +178,13 @@ float4 main(PSInput input) : SV_TARGET {
 }
 )hlsl";
 
-// SceneInputs matches the HLSL cbuffer b0 in assets/shaders. HLSL places
-// float2 pad in the third 16-byte register because it cannot fit after hit
-// and resolution in the second register.
+// SceneInputs matches the HLSL cbuffer b0 in assets/shaders. Older shaders
+// ignore the third register; Recursive Circuit uses it for bounded music
+// energy, a decaying hit, integrated flow, and an eased palette phrase.
 struct alignas(16) SceneInputs {
   float time, bass, mids, highs;
   float hit, width, height, unused0;
-  float unused1, unused2, unused3, unused4;
+  float reactiveEnergy, reactivePulse, reactiveFlow, reactivePalette;
   std::array<float, 4> sceneParams{};
 };
 static_assert(sizeof(SceneInputs) == 64);
@@ -329,6 +330,7 @@ struct SpoutRender::Impl {
   double lastPublishedSeconds = -std::numeric_limits<double>::infinity();
   double lastSceneSeconds = std::numeric_limits<double>::quiet_NaN();
   double sceneClock = 0.0;
+  ReactiveMotion reactiveMotion;
   bool motionEverActive = false;
   std::array<float, 4> smoothedMacros{};
   spoutDX sender;
@@ -485,6 +487,10 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
   if (!impl_) { error = "Spout renderer is not initialized"; return false; }
   if (!std::isfinite(seconds)) { error = "Render time is not finite"; return false; }
   auto& render = *impl_;
+  // Advance even when the safety tier skips publishing this iteration. A
+  // short onset must not disappear merely because it landed between 30 Hz
+  // Spout frames.
+  const ReactiveFrame reactive = render.reactiveMotion.Advance(signal, seconds);
   if (quality.targetFps > 0 && quality.targetFps <= 30 &&
       seconds >= render.lastPublishedSeconds &&
       seconds - render.lastPublishedSeconds < 1.0 / quality.targetFps) {
@@ -542,6 +548,10 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
     inputs.hit = signal.hit ? 1.0f : 0.0f;
     inputs.width = static_cast<float>(width);
     inputs.height = static_cast<float>(height);
+    inputs.reactiveEnergy = reactive.energy;
+    inputs.reactivePulse = reactive.pulse;
+    inputs.reactiveFlow = reactive.flow;
+    inputs.reactivePalette = reactive.palette;
     inputs.sceneParams = show.decks[deck].sceneParams;
     render.context->UpdateSubresource(render.sceneConstants.Get(), 0, nullptr,
                                        &inputs, 0, 0);

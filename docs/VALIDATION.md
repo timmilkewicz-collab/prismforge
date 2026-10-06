@@ -297,6 +297,76 @@ acceptance, rollback packaging and hash checks are complete.
   changed 139/576 sampled pixels for Neon Orbs, 134/576 for Shardwell and
   458/576 for Recursive Circuit; average frame luminance changed by 0.0035,
   0.0045 and 0.0096 respectively. BMP stills under `build/visual-preview-20261005`
-  are local review artifacts, not bundled scene assets. The new scene has not
-  yet been run into Resolume or judged with live audio; GPU completion timing,
-  Arena output fps, flash-risk monitoring and extended stability remain open.
+  are local review artifacts, not bundled scene assets. At this source
+  checkpoint the new scene had not yet run into Resolume. GPU completion
+  timing, Arena output fps, flash-risk monitoring and extended stability
+  remain open.
+
+## Recursive Circuit first Arena audition and response pass — 2026-10-05 late PT
+
+- After the operator closed Control, the older `20261005-185711` Engine was
+  still the active sender, as designed. Its exact executable path and OSC
+  ownership were verified before it received an isolated console Ctrl+C.
+  The hash-verified `20261005-224222` Engine and matching Control were then
+  opened with `--no-persist`; no PrismBurst process, shortcut or saved Arena
+  composition was changed.
+- Recursive Circuit was selected on deck A through the new Engine's loopback
+  OSC port. An independent receiver observed 601 fresh 1920x1080 BGRA8 frames
+  in ten seconds. Engine status sampled about 60 fps at tier 0 and later
+  measured nonzero music RMS. The currently playing NestDrop clip on Arena's
+  higher layer was stopped, not removed, to expose PrismForge by itself.
+  Arena's Output Monitor then visibly showed the circuit field. The operator
+  judged it more complex and cool, but still far below NestDrop in
+  music-driven movement, fluidity and dramatic color/shape transitions.
+- Inspection found the first shader's movement mostly free-running, its
+  grouped-band influence small, its hit accent only one render frame, and its
+  palette fixed per octave. The follow-up source pass derives a bounded
+  visual envelope from real-scale RMS while preserving raw SignalFrameV1
+  metering, decays onsets over 300 ms, integrates motion speed from music,
+  and eases phrase-level palette/topology changes. The first alpha remains
+  the live rollback until the new package passes its own audition.
+- In source, all 18 shaders compiled at four tiers with `/WX`; the Release
+  Engine built and 7/7 native CTests passed. An isolated RTX EffectProbe using
+  RMS 0.005 versus 0.06 and grouped bands in the 0.002–0.018 range observed
+  480/576 changed pixels for quiet versus music, 208/576 at 100 ms after an
+  onset, and 454/576 at 800 ms into a shape/palette phrase. Mean-luminance
+  differences were 0.0163 and 0.0205 for the music and phrase comparisons;
+  the onset-only luminance difference fell from 0.000804 at 100 ms to 0.000059
+  at 600 ms. The probe also passed fixed 1080p output, effects, tier, safety,
+  blackout and shader-reload checks. Stills under
+  `build/visual-preview-20261005-v2` show a clear rail-to-loop and
+  cyan/violet/amber-to-green/red/blue change. These are synthetic fixtures,
+  not a live music-to-pixels or flash-safety pass for the new Engine.
+
+## Reactive Recursive Circuit portable alpha in Arena — 2026-10-05 late PT
+
+- The full Release native build and all 7/7 CTests passed, followed by a
+  separate `dist/PrismForge-alpha-20261005-233633` portable package with
+  50/50 SHA-256 files verified. The exact package passed IPC smoke, including
+  fixed 1080p sender state, scene controls, reconnect and OSC. The isolated
+  RTX EffectProbe and 18 shaders × four tiers had passed before packaging.
+- With the operator's permission for a brief off-air restart, the exact older
+  `20261005-224222` PrismForge Control closed via its window and its verified
+  Engine exited on console Ctrl+C. The replacement Engine and Control were
+  launched from the new package with `--no-persist`. Deck A was set to
+  Recursive Circuit, crossfader to A and audio to the currently enumerated
+  Maono MIC In 1/2 endpoint. No PrismBurst process, shortcut or source was
+  changed; the Arena composition remains unsaved.
+- The independent Spout receiver connected to `PrismForge` and counted 597
+  fresh 1920×1080 BGRA8 frames in ten seconds on the RTX 4070. OSC status
+  sampled 59.88–60.15 Engine fps at tier 0 with Spout ready. The active
+  NestDrop clip on Arena's higher Layer 3 obscured Forge; its playing clip
+  was stopped, not deleted, and Arena's Output Monitor then visibly showed
+  Recursive Circuit. This is Arena visual reception, not Arena output-FPS
+  measurement.
+- The Maono capture connected and reported fresh blocks. An early quiet
+  11-second status sample had RMS 0.00049–0.00571; a later 12-second sample
+  during the operator's positive visual reaction ranged 0.02195–0.84279 RMS
+  while Engine cadence stayed near 60 fps. The operator said the result was
+  a real improvement but still nowhere near NestDrop's movement and evolving
+  scenes. There was no controlled playback-versus-pause comparison or raw
+  audio recording, and the high RMS warrants a gain/clipping check.
+- Windows reported 92.7–94.2% physical memory use (roughly 1.8–2.3 GB free)
+  during the preview; no process was killed or system setting changed. The
+  live Engine remains running for supervised play. Flash-risk monitoring,
+  Arena output FPS, mixed-load soak and show clearance remain open.
