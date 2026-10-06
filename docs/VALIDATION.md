@@ -188,3 +188,80 @@ acceptance, rollback packaging and hash checks are complete.
   the test's bounded cold-start deadline to 30 seconds, the same package
   passed. This does not prove startup under eight seconds, physical audio,
   Arena output FPS, or show readiness.
+
+## Mirror Cathedral and audio-readiness pass — 2026-09-22 late evening
+
+- Seventeen scene shaders compiled at all four quality tiers with warnings
+  treated as errors. The Release native build and 7/7 CTests passed; the
+  Control UI build and 8/8 Vitest checks passed; 35/35 .NET protocol/origin
+  tests passed. A build-target change copies current shader/manifest assets
+  even when no C++ object was recompiled; the source/runtime Mirror Cathedral
+  shader hashes matched after that rebuild.
+- IPC smoke against a bounded `--no-audio --no-persist` Engine passed fixed
+  1920×1080 output, Mirror Cathedral registration, both scene-control state
+  updates and rejection of a late control for a different scene, reconnect,
+  OSC command/gesture, and 20 enumerated audio sources. It did not establish
+  an active audio signal.
+- The isolated `PrismForge.EffectProbe` receiver verified stable identical
+  pixels for fixed Mirror Cathedral inputs, and changed pixels for each of its
+  four controls and synthetic bass, mids, highs and hit independently. With
+  the final shader and synthetic fixture, average luminance was about 0.0838
+  and peak RGB 144. This is a GPU-path check, not real-source music response.
+- The supervised aggregate-only test found `system-default` loopback open but
+  with no fresh sample-index advance, zero RMS/bands/hits over about 5.6 s
+  without playback. Maono MIC In 1/2 delivered 96 distinct sample indices in
+  about 5.8 s, but room-idle RMS averaged about 0.0001 (peak below 0.0004)
+  with zero hits. Both deliberately failed the music-signal criterion. No raw
+  audio was recorded and no user audio app was changed.
+- A test-owned development Engine displayed Mirror Cathedral in the existing
+  still-unsaved Arena composition. The first pass read as repetitive rings;
+  a revised pass had broader faceted panels and cropped foreground masses.
+  Changing Symmetry/Depth/Aperture/Line width to approximately
+  8%/82%/22%/78% visibly produced a larger monolithic silhouette. A 50/50
+  blend with Neon Orbs displayed but was dimmer than a full-deck cut. The
+  Engine ran with audio/persistence disabled. Arena's output FPS, real music
+  response, venue flash risk and one-hour soak remain unmeasured.
+- The final shader was included in portable candidate
+  `dist/PrismForge-alpha-20260922-220042`: all 49 SHA-256 entries verified,
+  Launcher layout check exited 0, and exact-package IPC and Control-crash
+  survival checks passed. Arena visibly displayed that package's bounded,
+  audio-disabled Mirror Cathedral preview in the still-unsaved composition.
+  An independent RTX 4070 Spout receiver counted 601 fresh 1920x1080 BGRA8
+  frames in ten seconds, with spatial-grid changes in all three temporal
+  windows (14/17/16). This verifies sender continuity and visible reception,
+  not Arena output FPS, music response, flash safety, or show readiness.
+
+## Standalone checkpoint and live-input meters — 2026-10-05
+
+- A fresh Visual Studio 2026 Release build passed 7/7 native CTests. The
+  Control passed 35/35 .NET tests, 8/8 UI tests and its production build. All
+  17 scene shaders compiled across four quality tiers with warnings as errors.
+  A bounded IPC smoke against the fresh Engine passed Mirror Cathedral's
+  controls/stale-command guard, fixed 1080p output, OSC and reconnect.
+- The independent `PrismForge.EffectProbe` passed all four deck effects,
+  Mirror Cathedral's four controls and synthetic bass/mids/highs/hit pixel
+  differences, four fixed-size output tiers, safety-tier frame gate, panic dim,
+  blackout, macro differences and shader-reload rollback. These are isolated
+  GPU-path checks, not a real-music visual pass.
+- Control now clears stale live audio, FPS and Spout indicators when its Engine
+  link is lost; the reconnect test requires fresh telemetry and keeps master
+  macros unavailable until a current Engine snapshot arrives. It does not
+  assume that the Engine itself stopped when Control loses IPC.
+- Portable `dist/PrismForge-alpha-20261005-185711` passed 49/49 SHA-256
+  manifest entries, exact-package IPC smoke and test-owned Control-crash
+  survival. Neither test saved a show or modified PrismBurst.
+- With music and the interface connected, this exact package's bounded
+  aggregate-only probe measured **ACTIVE_SIGNAL** on `system-default` loopback:
+  171 distinct sample indices in 10.8 seconds, mean RMS 0.0392, peak 0.3924,
+  and 33 hit increments. The current `Maono MIC In 1/2 (3- Maono ProStudio
+  2x2 lite)` input separately passed: 179 distinct sample indices in 10.7
+  seconds, mean RMS 0.0178, peak 0.1360, and 31 hit increments. Exact endpoint
+  identity was resolved from the current enumeration; no raw audio was saved
+  and no audio routing was changed. These meter thresholds confirm live signal
+  delivery to the analyzer, not that Mirror Cathedral visibly responds to
+  music or that either route has ideal gain/beat quality.
+- A controlled visual preview was attempted, but the Windows window-control
+  helper could not bind to the test-owned Control window. No uncertain UI
+  input or Arena manipulation was attempted. The exact test-owned Control and
+  bounded Engine were stopped; real-music playback-versus-pause visual QA,
+  Arena output FPS, mixed-load soak and flash-risk checks remain open.

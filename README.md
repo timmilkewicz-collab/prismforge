@@ -54,6 +54,10 @@ or alter PrismBurst.
 reconnect and OSC without saving show state. `tests/ui-crash-survival.ps1
 -EnginePath <engine-exe> -ControlPath <control-exe>` starts only test-owned
 processes and verifies output survives a hard Control exit.
+`tests/audio-signal-smoke.ps1 -EnginePath <engine-exe>` is a separate bounded
+aggregate-only check for the selected real audio endpoint. See
+[audio live check](docs/AUDIO_LIVE_CHECK.md); a connected device alone is not
+evidence of music reaching the shader.
 
 ## Repository map
 
@@ -61,7 +65,7 @@ processes and verifies output survives a hard Control exit.
 - `native/engine`: WASAPI/miniaudio capture, D3D11 scene/deck rendering, Spout
   sender and versioned named-pipe IPC.
 - `native/spike`: independent D3D11→Spout sender/receiver proof.
-- `assets/scenes` and `assets/shaders`: sixteen original scene manifests and HLSL assets.
+- `assets/scenes` and `assets/shaders`: seventeen original scene manifests and HLSL assets.
 - `control`: local React/TypeScript UI and WebView2 host.
 - `docs`: contracts, validation and honest feature status.
 

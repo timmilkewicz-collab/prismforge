@@ -1,11 +1,12 @@
 # PrismForge weekend teaser — operator runbook
 
 **Status: candidate, not show-cleared.** The first automated twelve-scene tour was
-rejected as visually uninteresting. This teaser instead uses four original
-looks: **Hex Vortex**, **Ferrofluid Reactor**, **Shardwell**, and **Neon Orbs**,
-played by hand in PrismForge Control and mixed live in Resolume. The latter two
-were art-directed using the operator's Resolume clips as references; the clips
-are not included in PrismForge. Do not run the old automated tour. No
+rejected as visually uninteresting. The current live feature is **Mirror
+Cathedral**, an original dark architectural scene with four live shape controls.
+Use **Neon Orbs** or **Shardwell** as a contrasting second deck; Hex Vortex and
+Ferrofluid Reactor remain alternatives. The operator's clips informed the art
+direction but are not included in PrismForge. Play it by hand in Control and
+mix live in Resolume; do not run the old automated tour. No
 standalone backup video was requested. Keep PrismBurst as the known live
 fallback; do not change its checkout, shortcuts, settings, or controller routing.
 Arena recovered from a transient Spout interop warning during rapid sender
@@ -19,14 +20,15 @@ Use only a newly built, separate portable folder after **all** of these pass
 for that exact folder, not just for source or a previous alpha:
 
 1. Release build, native CTest, Control frontend/.NET tests, packaged IPC smoke,
-   and all **16 scene shaders × 4 quality tiers** compile successfully. Verify
+   and all **17 scene shaders × 4 quality tiers** compile successfully. Verify
    every packaged file against its `SHA256SUMS.txt`; keep the prior folder
    `dist/PrismForge-alpha-20260922-161109` unchanged.
 2. Confirm the running Engine executable path points into the new folder. One
    Engine owns the `PrismForge` sender; launching another folder may simply
    reconnect to the old process. Confirm the independent Spout receiver sees
-   changing **1920×1080 BGRA8** frames, and Resolume itself displays all four
-   featured scenes without freezes or shader errors. Check **Resolume's output FPS**
+   changing **1920×1080 BGRA8** frames, and Resolume itself displays Mirror
+   Cathedral plus the chosen second scene without freezes or shader errors.
+   Sweep all four scene controls at the intended quality tier and check **Resolume's output FPS**
    during crossfades and macro sweeps; receiver cadence alone is not that test.
    Do not run an older same-name GPU probe or rapidly replace the sender while
    Arena is connected; the current isolated test probe uses
@@ -34,13 +36,15 @@ for that exact folder, not just for source or a previous alpha:
    PrismForge layer is on air: recompiling all scene/tier variants pauses the
    render thread.
 3. Rehearse the intended short segment with the actual projector/LED preview:
-   the intended scene pair, both decks, Control disconnect/reconnect, macro reset, Panic
+   Mirror Cathedral's different silhouette states, the intended second deck,
+   Control disconnect/reconnect, macro reset, Panic
    dim, Blackout, and the separate Resolume clip/layer cut must work. Observe
    for rapid luminance changes, discomfort, dropped frames, and overheating.
    If any occurs, keep PrismForge off air.
 4. If audio reaction is part of the teaser, test the **actual** FL Studio/
-   system-loopback or Maono/interface source with music: verify the Control
-   meter and visible scene response, no clipping, source switching/recovery,
+   system-loopback or Maono/interface source with music: verify Control reports
+   `audio.receiving`, its meter moves, and Mirror Cathedral visibly changes
+   with music versus paused; check no clipping and source switching/recovery,
    and stable Resolume output. Otherwise run visual-only with `--no-audio` and
    manipulate the macros manually. Do not use Launchpad S for this teaser;
    its physical input/LED and coexistence checks are still pending.
@@ -75,16 +79,21 @@ CPU submission time rather than GPU timestamp timing.
    If the Performance macros say **Requires matching Engine**, the Control
    has connected to an older Engine: keep PrismForge off air and verify the
    exact Engine path rather than using those disabled controls.
-4. In Control, try **Shardwell** on deck A and **Neon Orbs** on deck B for a
-   dense-to-sparse crossfade. Keep **Hex Vortex** and **Ferrofluid Reactor** as
-   alternate deck choices. Start with the crossfader on A, four Performance
-   macros at **0%**, per-deck effects at 0%, and the Resolume clip/layer still
-   off air. Bring the Resolume layer up only after the preview is acceptable.
+4. In Control, select the featured **Mirror Cathedral** on deck A and **Neon
+   Orbs** on deck B. A manual Arena preview found a more monolithic Mirror
+   silhouette around Symmetry **8%**, Depth **82%**, Aperture **22%**, Line
+   width **78%**; the neutral 50% positions make a denser portal. These are
+   artistic starting points, not validated safety limits. Start with the
+   crossfader fully on A, four Performance macros at **0%**, per-deck effects
+   at 0%, and the Resolume clip/layer still off air. Keep Shardwell available
+   as the dense alternative. Bring the Resolume layer up only after the
+   preview is acceptable.
 5. Build movement gradually. Suggested *starting* bounds: Motion **0–35%**,
    Warp **0–25%**, Trails **0–20%**, Color **0–25%**; avoid pushing them all
    high together. Motion drives scene speed, Warp bends geometry, Trails adds
    bounded history, and Color intensifies the palette. Crossfade slowly
-   between the two scenes. Neon Orbs intentionally leaves much of the frame
+   between the two scenes rather than parking at 50%, which looked dim in a
+   development preview. Neon Orbs intentionally leaves much of the frame
    black; if layering it over other Resolume clips, choose and rehearse the
    blend mode in Arena rather than assuming black is transparent. Use **RESET**
    to return all macros to neutral.

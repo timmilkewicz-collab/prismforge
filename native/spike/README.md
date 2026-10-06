@@ -44,7 +44,12 @@ the received Spout texture remains 1920x1080 BGRA8, including the 30 fps
 safety-tier gate. The same probe verifies panic-dim lowers full-frame average
 luminance, blackout emits zero RGB, and a deliberately invalid shader reload
 keeps the previous valid output. It restores the shader and verifies a valid
-reload afterward. The reload test uses a unique temporary copy of all sixteen
+reload afterward. It also fingerprints every received RGB pixel of Mirror
+Cathedral at a fixed timestamp: all four scene controls and synthetic bass,
+mids, highs, and hit must independently change the image, while an unchanged
+input must reproduce the same fingerprint. This is GPU signal-path coverage,
+not proof of physical audio responsiveness or show safety. The reload test
+uses a unique temporary copy of all seventeen
 shaders and publishes as `PrismForge.EffectProbe`, not the live `PrismForge`
 sender; source assets are not changed:
 

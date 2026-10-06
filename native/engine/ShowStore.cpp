@@ -26,7 +26,8 @@ std::filesystem::path KnownFolder(REFKNOWNFOLDERID id) {
 Json SnapshotJson(const ShowSnapshot& snapshot) {
   Json decks = Json::array();
   for (const auto& deck : snapshot.decks) {
-    decks.push_back({{"sceneId", deck.sceneId}, {"effects", deck.effects}});
+    decks.push_back({{"sceneId", deck.sceneId}, {"effects", deck.effects},
+                     {"sceneParams", deck.sceneParams}});
   }
   Json overlays = Json::array();
   for (const auto& overlay : snapshot.overlays) {
@@ -54,6 +55,16 @@ ShowSnapshot ParseSnapshot(const Json& value) {
     }
     result.decks[i].sceneId = deck.at("sceneId").get<std::string>();
     result.decks[i].effects = deck.at("effects").get<std::array<float, 4>>();
+    // Older v1 shows did not have scene-specific controls. Preserve their
+    // original look while defaulting the new controls to neutral.
+    if (deck.contains("sceneParams")) {
+      if (!deck.at("sceneParams").is_array() ||
+          deck.at("sceneParams").size() != result.decks[i].sceneParams.size()) {
+        throw std::invalid_argument("Deck scene parameter count mismatch");
+      }
+      result.decks[i].sceneParams =
+          deck.at("sceneParams").get<std::array<float, 4>>();
+    }
   }
   for (unsigned i = 0; i < result.overlays.size(); ++i) {
     const auto& overlay = value.at("overlays").at(i);

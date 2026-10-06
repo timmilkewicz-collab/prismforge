@@ -177,6 +177,22 @@
       "parameters": [],
       "capabilities": ["procedural", "audio-reactive"],
       "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "mirror-cathedral",
+      "name": "Mirror Cathedral",
+      "version": 1,
+      "shader": "assets/shaders/MirrorCathedral.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [
+        {"id": "symmetry", "name": "Symmetry", "type": "float", "index": 0, "min": 0, "max": 1, "default": 0.5},
+        {"id": "depth", "name": "Depth", "type": "float", "index": 1, "min": 0, "max": 1, "default": 0.5},
+        {"id": "aperture", "name": "Aperture", "type": "float", "index": 2, "min": 0, "max": 1, "default": 0.5},
+        {"id": "lineWidth", "name": "Line width", "type": "float", "index": 3, "min": 0, "max": 1, "default": 0.5}
+      ],
+      "capabilities": ["procedural", "audio-reactive", "live-parameters"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
     }
   ]
 }

@@ -50,6 +50,10 @@ Get-ChildItem -LiteralPath (Join-Path $repository 'docs') -Filter '*.md' -File |
 Copy-Item -LiteralPath (Join-Path $repository 'docs\STATUS.md') `
     -Destination (Join-Path $destination 'STATUS.md')
 Copy-Item -LiteralPath $teaserGuide -Destination (Join-Path $destination 'SHOW_TEASER.md')
+$packageTools = Join-Path $destination 'tools'
+New-Item -ItemType Directory -Path $packageTools | Out-Null
+Copy-Item -LiteralPath (Join-Path $repository 'tests\audio-signal-smoke.ps1') `
+    -Destination $packageTools
 
 $hashes = Get-ChildItem -LiteralPath $destination -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |

@@ -9,15 +9,19 @@
 
 namespace prismforge {
 
-inline constexpr std::array<std::string_view, 16> kSceneIds = {
+inline constexpr std::array<std::string_view, 17> kSceneIds = {
     "ink-tide", "prism-atrium", "chrome-flock", "signal-lab",
     "neon-rift", "media-alchemy", "reaction-bloom", "harmonic-sand",
     "constellation", "fold-temple", "dream-grove", "living-point-cloud",
-    "hex-vortex", "ferrofluid-reactor", "shardwell", "neon-orbs"};
+    "hex-vortex", "ferrofluid-reactor", "shardwell", "neon-orbs",
+    "mirror-cathedral"};
 
 struct DeckState {
   std::string sceneId = "ink-tide";
   std::array<float, 4> effects{};
+  // Normalized per-deck controls. Existing scenes ignore these; the current
+  // hero scene maps them to symmetry, depth, aperture and line width.
+  std::array<float, 4> sceneParams{0.5f, 0.5f, 0.5f, 0.5f};
 };
 
 struct OverlayState {
@@ -64,6 +68,7 @@ class ShowState {
   bool SetScene(unsigned deck, std::string_view sceneId);
   void SetCrossfader(float value);
   void SetEffect(unsigned deck, unsigned index, float value);
+  bool SetSceneParameter(unsigned deck, unsigned index, float value);
   bool SetOverlay(unsigned slot, OverlayState overlay);
   bool SetMasterEffect(unsigned index, float value);
   void SetBlackout(bool enabled) noexcept { current_.blackout = enabled; }

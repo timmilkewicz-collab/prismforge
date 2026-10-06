@@ -32,7 +32,7 @@ struct SceneSpec {
   std::string_view file;
 };
 
-constexpr std::array<SceneSpec, 16> kScenes = {{
+constexpr std::array<SceneSpec, 17> kScenes = {{
     {"ink-tide", "InkTide.hlsl"},
     {"prism-atrium", "PrismAtrium.hlsl"},
     {"chrome-flock", "ChromeFlock.hlsl"},
@@ -49,6 +49,7 @@ constexpr std::array<SceneSpec, 16> kScenes = {{
     {"ferrofluid-reactor", "FerrofluidReactor.hlsl"},
     {"shardwell", "Shardwell.hlsl"},
     {"neon-orbs", "NeonOrbs.hlsl"},
+    {"mirror-cathedral", "MirrorCathedral.hlsl"},
 }};
 
 constexpr char kFullscreenShader[] = R"hlsl(
@@ -182,8 +183,9 @@ struct alignas(16) SceneInputs {
   float time, bass, mids, highs;
   float hit, width, height, unused0;
   float unused1, unused2, unused3, unused4;
+  std::array<float, 4> sceneParams{};
 };
-static_assert(sizeof(SceneInputs) == 48);
+static_assert(sizeof(SceneInputs) == 64);
 
 struct alignas(16) CompositeInputs {
   float crossfader, gain, pad0, pad1;
@@ -539,6 +541,7 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
     inputs.hit = signal.hit ? 1.0f : 0.0f;
     inputs.width = static_cast<float>(width);
     inputs.height = static_cast<float>(height);
+    inputs.sceneParams = show.decks[deck].sceneParams;
     render.context->UpdateSubresource(render.sceneConstants.Get(), 0, nullptr,
                                        &inputs, 0, 0);
     render.context->OMSetRenderTargets(1,

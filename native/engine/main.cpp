@@ -56,8 +56,21 @@ Json ReadSceneCatalog(const std::filesystem::path& executableDirectory) {
     const Json manifest = Json::parse(stream);
     Json catalog = Json::array();
     for (const auto& scene : manifest.at("scenes")) {
+      const auto& parameters = scene.at("parameters");
+      if (!parameters.is_array() || parameters.size() > 4) return Json::array();
+      std::array<bool, 4> used{};
+      for (const auto& parameter : parameters) {
+        const unsigned index = parameter.at("index").get<unsigned>();
+        if (index >= used.size() || used[index] ||
+            parameter.at("type") != "float" ||
+            parameter.at("min") != 0 || parameter.at("max") != 1 ||
+            !parameter.at("default").is_number() ||
+            parameter.at("default").get<float>() < 0.0f ||
+            parameter.at("default").get<float>() > 1.0f) return Json::array();
+        used[index] = true;
+      }
       catalog.push_back({{"id", scene.at("id")}, {"name", scene.at("name")},
-                         {"category", "procedural"}});
+                         {"category", "procedural"}, {"parameters", parameters}});
     }
     return catalog;
   } catch (const std::exception&) {
@@ -69,6 +82,18 @@ bool SceneAvailable(const Json& catalog, const std::string& id) {
   return std::any_of(catalog.begin(), catalog.end(), [&](const Json& item) {
     return item.value("id", std::string{}) == id;
   });
+}
+
+bool SceneParameterAvailable(const Json& catalog, const std::string& id,
+                             unsigned index) {
+  for (const auto& scene : catalog) {
+    if (scene.value("id", std::string{}) != id) continue;
+    for (const auto& parameter : scene.at("parameters")) {
+      if (parameter.at("index").get<unsigned>() == index) return true;
+    }
+    return false;
+  }
+  return false;
 }
 
 Json SignalJson(const SignalFrameV1& signal, double fps, double frameMs,
@@ -109,12 +134,13 @@ Json DeckJson(const DeckState& deck, const std::vector<ModulationRouteV1>& route
                            {"enabled", route.enabled}});
   }
   return {{"sceneId", deck.sceneId}, {"effects", effects},
+          {"sceneParams", deck.sceneParams},
           {"modulations", modulations}};
 }
 
 Json SnapshotJson(const ShowState& show, const SignalFrameV1& signal,
                   const Json& sceneCatalog, const std::vector<AudioDeviceInfo>& devices,
-                  const std::string& sourceId, bool audioConnected,
+                  const std::string& sourceId, bool audioConnected, bool audioReceiving,
                   bool spoutReady, double fps, double frameMs,
                   unsigned targetFps, unsigned tier, std::uint64_t revision,
                   const std::array<bool, ShowState::kCueCount>& cueSaved,
@@ -141,7 +167,8 @@ Json SnapshotJson(const ShowState& show, const SignalFrameV1& signal,
       {"blackout", state.blackout}, {"panicDim", state.panicDim},
       {"sceneCatalog", sceneCatalog},
       {"audio", {{"sourceId", sourceId}, {"sources", sources},
-                 {"connected", audioConnected}, {"rms", signal.rms},
+                 {"connected", audioConnected}, {"receiving", audioReceiving},
+                 {"rms", signal.rms},
                  {"peak", signal.peak}, {"low", signal.bass},
                  {"mid", signal.mids}, {"high", signal.highs},
                  {"clipping", signal.peak >= 0.99f}}},
@@ -187,6 +214,15 @@ bool ApplyCommand(const QueuedCommand& command, ShowState& show,
       const unsigned effectIndex = payload.at("effectIndex").get<unsigned>();
       if (effectIndex >= 4) throw std::invalid_argument("Effect index invalid");
       show.SetEffect(deckIndex(), effectIndex, payload.at("amount").get<float>());
+    } else if (command.name == "setSceneParameter") {
+      const unsigned deck = deckIndex();
+      const std::string sceneId = payload.at("sceneId").get<std::string>();
+      const unsigned index = payload.at("index").get<unsigned>();
+      if (show.Current().decks[deck].sceneId != sceneId ||
+          !SceneParameterAvailable(catalog, sceneId, index) ||
+          !show.SetSceneParameter(deck, index, payload.at("amount").get<float>())) {
+        throw std::invalid_argument("Scene parameter unavailable or stale");
+      }
     } else if (command.name == "setOverlay") {
       OverlayState overlay;
       overlay.enabled = payload.at("enabled").get<bool>();
@@ -416,6 +452,8 @@ int main(int argc, char** argv) {
   auto lastPublish = Clock::time_point{};
   auto lastAutosave = start;
   auto lastHealth = start;
+  auto lastAudioBlock = Clock::time_point{};
+  bool staleSignalCleared = true;
   while (g_running && (seconds == 0 || Clock::now() - start < std::chrono::seconds(seconds))) {
     while (auto event = audio.Poll()) {
       if (event->hasDevices) {
@@ -428,8 +466,16 @@ int main(int argc, char** argv) {
         analyzer = SignalAnalyzer(event->sampleRate);
         lastHitCount = 0;
         lastAccentCount = 0;
+        lastAudioBlock = Clock::time_point{};
+        staleSignalCleared = true;
         ++revision;
       } else if (event->kind == AudioSwitchEventKind::Disconnected) {
+        while (audioQueue.TryPop()) {}
+        analyzer = SignalAnalyzer(event->sampleRate);
+        lastHitCount = 0;
+        lastAccentCount = 0;
+        lastAudioBlock = Clock::time_point{};
+        staleSignalCleared = true;
         ++revision;
       }
       if (!event->error.empty()) {
@@ -444,6 +490,19 @@ int main(int argc, char** argv) {
     }
     while (auto block = audioQueue.TryPop()) {
       analyzer.PushMono(block->samples.data(), block->count);
+      lastAudioBlock = Clock::now();
+      staleSignalCleared = false;
+    }
+    const bool audioReceiving = audio.IsRunning() &&
+        lastAudioBlock != Clock::time_point{} &&
+        Clock::now() - lastAudioBlock < std::chrono::milliseconds(250);
+    if (!audioReceiving && !staleSignalCleared) {
+      // A source can stop delivering blocks without an OS disconnect event.
+      // Never leave old spectral energy pinned on the display or shader.
+      analyzer = SignalAnalyzer(audio.SampleRate());
+      lastHitCount = 0;
+      lastAccentCount = 0;
+      staleSignalCleared = true;
     }
     SignalFrameV1 signal = analyzer.Latest();
     if (signal.hitCount > lastHitCount) {
@@ -540,7 +599,7 @@ int main(int argc, char** argv) {
     }
     if (now - lastPublish >= std::chrono::milliseconds(50)) {
       pipe.Publish(SnapshotJson(show, signal, sceneCatalog, devices, audioSource,
-                                audio.IsRunning(), true, measuredFps, renderMs,
+                                audio.IsRunning(), audioReceiving, true, measuredFps, renderMs,
                                 governor.Current().targetFps, governor.TierIndex(),
                                 revision, cueSaved, oscReady, prismBurstHealth),
                    SignalJson(signal, measuredFps, renderMs,

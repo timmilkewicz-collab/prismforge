@@ -13,19 +13,20 @@ PrismForge scenes and shaders remain independently authored.
   the depth-and-contrast principle into a procedural block field; it does not
   use the clip's geometry or pixels.
 - `BC20_1.mov`: sparse mirrored neon architecture with deliberate near-black
-  gaps. A future scene should expose symmetry, panel topology, line width and
-  aperture as real performance controls, with beat transitions constrained
-  to avoid whole-frame luminance steps.
+  gaps. **Mirror Cathedral** is an original faceted-space response with live
+  symmetry, panel topology/depth, aperture and line width, plus only local
+  hit accents instead of whole-frame beat flashes.
 - `BC6_1.mov`: glossy dark forms with local magenta, lime and amber light in
   extensive negative space. **Neon Orbs** is an original procedural cluster
   exploring that contrast; its dark background is opaque Spout output, not an
   alpha mask.
 
-The strongest live pair is currently Shardwell versus Neon Orbs: dense versus
-sparse silhouettes. Hex Vortex and Ferrofluid Reactor remain alternate
-portal/material looks. The current global Motion, Warp, Trails and Color
-controls plus the two-deck crossfader are usable, but scene-specific
-density, depth, aperture, focus and topology controls are not implemented.
+The current teaser pair is Mirror Cathedral versus Neon Orbs: architectural
+mass against sparse glossy forms. Shardwell remains the denser alternate;
+Hex Vortex and Ferrofluid Reactor remain other portal/material directions.
+The global Motion, Warp, Trails and Color controls and the two-deck crossfader
+are usable, and Mirror Cathedral now has four scene-specific performance
+controls. Equivalent controls for the other scenes are not implemented.
 Likewise, direct video ingestion, a venue-safe profile, flash-risk monitoring
 and end-to-end Arena output-FPS proof remain future work. Do not describe the
 four reference clips as bundled content or these visual candidates as
@@ -47,9 +48,10 @@ on-screen appearance and performance were not verified in this pass.
 The next **original** PrismForge concepts should each expose a real performance
 dimension rather than add another automatic tunnel variation:
 
-1. Neon mirror architecture: live symmetry/order, panel topology, aperture
-   and line width, with local beat accents instead of whole-frame steps
-   (the BC20 and Geometric/Hypnotic direction).
+1. Neon mirror architecture: Mirror Cathedral is the first implementation of
+   live symmetry/order, panel topology, aperture and line width, with local
+   beat accents instead of whole-frame steps. Real music-response and venue
+   preview are still acceptance gates (the BC20 and Geometric/Hypnotic direction).
 2. Recursive liquid-circuit field: selectable attractor, echo persistence,
    bass-driven branch growth and gesture pan (Drawing/Fractal/Reaction).
 3. Volumetric crystal swarm: density, orbit radius and focus/depth, with audio

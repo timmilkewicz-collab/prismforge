@@ -106,7 +106,8 @@ bool receive_new_frame(spoutDX& receiver) {
 
 bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
                          ID3D11DeviceContext* context, std::uint64_t& hash,
-                         double* average_luma, std::uint8_t* maximum_rgb) {
+                         double* average_luma, std::uint8_t* maximum_rgb,
+                         std::uint64_t* full_frame_hash) {
   auto* source = receiver.GetSenderTexture();
   if (!source || receiver.GetSenderWidth() != SpoutRender::kOutputWidth ||
       receiver.GetSenderHeight() != SpoutRender::kOutputHeight ||
@@ -134,16 +135,22 @@ bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
       hash *= 1099511628211ULL;
     }
   }
-  if (average_luma || maximum_rgb) {
+  if (average_luma || maximum_rgb || full_frame_hash) {
     std::uint64_t total = 0;
     std::uint8_t maximum = 0;
+    std::uint64_t full_hash = 1469598103934665603ULL;
     for (UINT y = 0; y < desc.Height; ++y) {
       const auto* scanline = bytes + y * mapped.RowPitch;
       for (UINT x = 0; x < desc.Width; ++x) {
         const auto* pixel = scanline + x * 4;
-        total += pixel[0] + pixel[1] + pixel[2];
+        if (average_luma) total += pixel[0] + pixel[1] + pixel[2];
         for (unsigned channel = 0; channel < 3; ++channel) {
-          if (pixel[channel] > maximum) maximum = pixel[channel];
+          if (maximum_rgb && pixel[channel] > maximum)
+            maximum = pixel[channel];
+          if (full_frame_hash) {
+            full_hash ^= pixel[channel];
+            full_hash *= 1099511628211ULL;
+          }
         }
       }
     }
@@ -152,6 +159,7 @@ bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
                       (3.0 * 255.0 * desc.Width * desc.Height);
     }
     if (maximum_rgb) *maximum_rgb = maximum;
+    if (full_frame_hash) *full_frame_hash = full_hash;
   }
   context->Unmap(readback.Get(), 0);
   return true;
@@ -163,11 +171,14 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
                      std::uint64_t& hash, std::string& error,
                      const QualityTier& quality = QualityTier{1.0f, 60},
                      double* average_luma = nullptr,
-                     std::uint8_t* maximum_rgb = nullptr) {
+                     std::uint8_t* maximum_rgb = nullptr,
+                     const SignalFrameV1* signal_override = nullptr,
+                     std::uint64_t* full_frame_hash = nullptr) {
   SignalFrameV1 signal{};
   signal.bass = 0.4f;
   signal.mids = 0.3f;
   signal.highs = 0.2f;
+  if (signal_override) signal = *signal_override;
   // Shared D3D readback can lag several Spout frame counters on this driver,
   // especially immediately after resizing. Settle a same-time frame train
   // before sampling; the 30 fps gate is checked separately below.
@@ -184,7 +195,7 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
     }
   }
   if (!hash_received_frame(receiver, device, context, hash,
-                           average_luma, maximum_rgb)) {
+                           average_luma, maximum_rgb, full_frame_hash)) {
     error = "Could not read received Spout pixels";
     return false;
   }
@@ -267,11 +278,12 @@ int main(int argc, char** argv) {
     double minimumLuma;
     std::uint8_t minimumPeak;
   };
-  constexpr std::array<SceneExpectation, 4> new_scenes = {{{
+  constexpr std::array<SceneExpectation, 5> new_scenes = {{{
       "hex-vortex", 0.07, 80},
       {"ferrofluid-reactor", 0.07, 80},
       {"shardwell", 0.01, 70},
       {"neon-orbs", 0.003, 70},
+      {"mirror-cathedral", 0.003, 70},
   }};
   std::array<std::uint64_t, new_scenes.size()> scene_hashes{};
   std::uint64_t previous_scene_hash = last_effect_hash;
@@ -296,6 +308,69 @@ int main(int argc, char** argv) {
       return 3;
     }
     previous_scene_hash = scene_hashes[index];
+  }
+
+  // Grid samples can miss a small hit-lit joint, so the focused hero-scene
+  // check fingerprints every received RGB pixel. Hold shader time fixed and
+  // repeat the baseline first to rule out stale Spout copies or history.
+  show.decks[0].sceneId = "mirror-cathedral";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  SignalFrameV1 mirror_signal{};
+  mirror_signal.bass = 0.17f;
+  mirror_signal.mids = 0.21f;
+  mirror_signal.highs = 0.19f;
+  auto mirror_fingerprint = [&](const ShowSnapshot& scene,
+                                const SignalFrameV1& signal,
+                                std::uint64_t& fingerprint) {
+    std::uint64_t grid_hash = 0;
+    return render_and_hash(renderer, receiver, receiver_device.Get(),
+                           receiver_context.Get(), scene, 2.625, grid_hash,
+                           error, {1.0f, 60}, nullptr, nullptr, &signal,
+                           &fingerprint);
+  };
+  std::uint64_t mirror_baseline = 0;
+  std::uint64_t mirror_repeat = 0;
+  if (!mirror_fingerprint(show, mirror_signal, mirror_baseline) ||
+      !mirror_fingerprint(show, mirror_signal, mirror_repeat)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  if (mirror_baseline != mirror_repeat) {
+    std::cerr << "Mirror Cathedral fixed-input frame was not stable\n";
+    return 3;
+  }
+  constexpr std::array<const char*, 4> control_names = {
+      "symmetry", "depth", "aperture", "line_width"};
+  for (unsigned index = 0; index < control_names.size(); ++index) {
+    ShowSnapshot variant = show;
+    variant.decks[0].sceneParams[index] = 0.91f;
+    std::uint64_t fingerprint = 0;
+    if (!mirror_fingerprint(variant, mirror_signal, fingerprint)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = fingerprint != mirror_baseline;
+    std::cout << "mirror_control_" << control_names[index]
+              << "_differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+  constexpr std::array<const char*, 4> audio_names = {
+      "bass", "mids", "highs", "hit"};
+  for (unsigned index = 0; index < audio_names.size(); ++index) {
+    SignalFrameV1 variant = mirror_signal;
+    if (index == 0) variant.bass = 0.91f;
+    if (index == 1) variant.mids = 0.91f;
+    if (index == 2) variant.highs = 0.91f;
+    if (index == 3) variant.hit = true;
+    std::uint64_t fingerprint = 0;
+    if (!mirror_fingerprint(show, variant, fingerprint)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = fingerprint != mirror_baseline;
+    std::cout << "mirror_audio_" << audio_names[index]
+              << "_differs=" << differs << '\n';
+    if (!differs) return 3;
   }
   show.decks[0].sceneId = "prism-atrium";
 

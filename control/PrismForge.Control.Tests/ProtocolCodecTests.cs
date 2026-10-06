@@ -89,6 +89,28 @@ public sealed class ProtocolCodecTests
     }
 
     [Theory]
+    [InlineData(0, 0.0)]
+    [InlineData(3, 1.0)]
+    public void ValidateCommand_AcceptsSceneParameter(int index, double amount)
+    {
+        var envelope = Command($"{{\"action\":\"setSceneParameter\",\"deck\":\"A\",\"sceneId\":\"mirror-cathedral\",\"index\":{index},\"amount\":{amount}}}");
+
+        ProtocolCodec.ValidateEnvelope(envelope);
+    }
+
+    [Theory]
+    [InlineData(-1, 0.5)]
+    [InlineData(4, 0.5)]
+    [InlineData(0, -0.1)]
+    [InlineData(0, 1.1)]
+    public void ValidateCommand_RejectsSceneParameterOutsideRange(int index, double amount)
+    {
+        var envelope = Command($"{{\"action\":\"setSceneParameter\",\"deck\":\"A\",\"sceneId\":\"mirror-cathedral\",\"index\":{index},\"amount\":{amount}}}");
+
+        Assert.Throws<ProtocolException>(() => ProtocolCodec.ValidateEnvelope(envelope));
+    }
+
+    [Theory]
     [InlineData(-1, 0.5)]
     [InlineData(4, 0.5)]
     [InlineData(0, -0.1)]

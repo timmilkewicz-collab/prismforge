@@ -67,6 +67,24 @@ int main() {
   CHECK(performance.RecallCue(1, Quantization::Immediate, 0));
   CHECK(performance.Current().decks[0].sceneId == "hex-vortex");
   CHECK(performance.Current().decks[1].sceneId == "ferrofluid-reactor");
+
+  ShowState sceneControls;
+  CHECK(sceneControls.SetScene(0, "mirror-cathedral"));
+  CHECK(sceneControls.SetSceneParameter(0, 0, 0.82f));
+  CHECK(sceneControls.SetSceneParameter(0, 3, 0.14f));
+  CHECK(!sceneControls.SetSceneParameter(2, 0, 0.5f));
+  CHECK(!sceneControls.SetSceneParameter(0, 4, 0.5f));
+  CHECK(!sceneControls.SetSceneParameter(0, 1, -0.01f));
+  CHECK(!sceneControls.SetSceneParameter(0, 1, 1.01f));
+  CHECK(!sceneControls.SetSceneParameter(0, 1, std::numeric_limits<float>::quiet_NaN()));
+  CHECK(sceneControls.SaveCue(0));
+  CHECK(sceneControls.SetSceneParameter(0, 0, 0.22f));
+  CHECK(sceneControls.RecallCue(0, Quantization::Immediate, 0));
+  CHECK(sceneControls.Current().decks[0].sceneParams[0] == 0.82f);
+  CHECK(sceneControls.Current().decks[0].sceneParams[3] == 0.14f);
+  auto badControl = sceneControls.Current();
+  badControl.decks[0].sceneParams[2] = std::numeric_limits<float>::infinity();
+  CHECK(!sceneControls.Restore(badControl, sceneControls.Cues(), sceneControls.Routes()));
   CHECK(performance.Current().masterEffects[0] == 0.35f);
   CHECK(performance.Current().masterEffects[3] == 0.42f);
   CHECK(performance.SetScene(0, "shardwell"));

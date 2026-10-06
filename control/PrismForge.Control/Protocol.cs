@@ -31,6 +31,7 @@ public static class ProtocolCodec
     {
         "requestSnapshot",
         "setScene",
+        "setSceneParameter",
         "setCrossfader",
         "setBlackout",
         "setPanicDim",
@@ -141,6 +142,12 @@ public static class ProtocolCodec
             case "setScene":
                 RequiredDeck(payload);
                 RequiredString(payload, "sceneId");
+                return;
+            case "setSceneParameter":
+                RequiredDeck(payload);
+                RequiredString(payload, "sceneId");
+                RequiredInteger(payload, "index", 0, 3);
+                RequiredNumber(payload, "amount", 0, 1);
                 return;
             case "setCrossfader":
                 RequiredNumber(payload, "value", 0, 1);

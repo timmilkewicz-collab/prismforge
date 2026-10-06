@@ -93,6 +93,7 @@ void AudioSwitcher::SwitchTo(const std::string& sourceId,
                              std::unique_ptr<IAudioCapture>& active,
                              std::string& activeId) {
   if (sourceId == activeId && active && active->IsRunning()) {
+    connected_.store(true);
     Publish({.kind = AudioSwitchEventKind::Switched,
              .requestedId = sourceId, .activeId = activeId,
              .connected = true, .sampleRate = active->SampleRate()});
@@ -113,7 +114,6 @@ void AudioSwitcher::SwitchTo(const std::string& sourceId,
   if (!started || !candidate->IsRunning()) {
     if (error.empty()) error = "Requested capture did not start";
     const bool stillConnected = active && active->IsRunning();
-    connected_.store(stillConnected);
     Publish({.kind = AudioSwitchEventKind::Failed,
              .requestedId = sourceId, .activeId = activeId,
              .devices = std::move(devices), .error = std::move(error),
@@ -155,18 +155,30 @@ void AudioSwitcher::Worker(bool captureEnabled) {
   if (captureEnabled && !stopping_.load()) {
     SwitchTo("system-default", active, activeId);
   }
-  while (!stopping_.load()) {
-    if (auto request = requests_.TryPop()) {
-      SwitchTo(*request, active, activeId);
-      continue;
-    }
-    if (active && connected_.load() && !active->IsRunning()) {
-      connected_.store(false);
+  const auto reconcileActive = [&] {
+    if (!active) return;
+    const bool running = active->IsRunning();
+    const bool wasConnected = connected_.exchange(running);
+    if (wasConnected && !running) {
       Publish({.kind = AudioSwitchEventKind::Disconnected,
                .activeId = activeId,
                .error = "Active audio endpoint stopped or was interrupted",
                .sampleRate = active->SampleRate()});
+    } else if (!wasConnected && running) {
+      // An interrupted WASAPI stream may resume without a new source request.
+      // Re-announce it once so the render thread can reset its sample clock.
+      Publish({.kind = AudioSwitchEventKind::Switched,
+               .requestedId = activeId, .activeId = activeId,
+               .connected = true, .sampleRate = active->SampleRate()});
     }
+  };
+  while (!stopping_.load()) {
+    if (auto request = requests_.TryPop()) {
+      SwitchTo(*request, active, activeId);
+      reconcileActive();
+      continue;
+    }
+    reconcileActive();
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
   if (active) active->Stop();

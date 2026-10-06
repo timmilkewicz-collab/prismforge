@@ -155,6 +155,14 @@ main { position: relative; z-index: 1; max-width: 1900px; margin: 0 auto; paddin
 .scene-now .scene-kicker { position: absolute; top: 7px; right: 9px; color: var(--muted); font-size: 7px; letter-spacing: .13em; text-transform: uppercase; }
 .scene-now strong { align-self: end; font-size: 13px; }
 .scene-now small { align-self: start; color: var(--muted); font-size: 9px; }
+.featured-scene { position: relative; z-index: 2; display: grid; gap: 2px; width: 100%; margin-top: 9px; padding: 9px 11px; text-align: left; border: 1px solid rgba(69,233,255,.40); border-radius: 8px; color: var(--muted-bright); background: linear-gradient(105deg, rgba(12,45,55,.8), rgba(20,15,38,.66)); cursor: pointer; }
+.deck-magenta .featured-scene { border-color: rgba(255,80,203,.38); background: linear-gradient(105deg, rgba(43,19,48,.78), rgba(11,30,40,.65)); }
+.featured-scene:hover:not(:disabled) { border-color: var(--cyan); }
+.deck-magenta .featured-scene:hover:not(:disabled) { border-color: var(--magenta); }
+.featured-scene span { color: var(--cyan); font-size: 7px; font-weight: 800; letter-spacing: .14em; }
+.deck-magenta .featured-scene span { color: var(--magenta); }
+.featured-scene b { font-size: 12px; }
+.featured-scene small { color: var(--muted); font-size: 8px; }
 
 .section-title { position: relative; z-index: 2; display: flex; align-items: center; justify-content: space-between; margin: 16px 1px 7px; color: var(--muted-bright); font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .count { display: grid; place-items: center; min-width: 20px; height: 18px; padding: 0 5px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 8px; }
@@ -170,6 +178,14 @@ main { position: relative; z-index: 1; max-width: 1900px; margin: 0 auto; paddin
 .scene-category { display: block; margin-top: 2px; overflow: hidden; color: var(--muted); font-size: 7px; text-overflow: ellipsis; white-space: nowrap; text-transform: uppercase; }
 .empty-state { display: grid; grid-column: 1/-1; place-items: center; min-height: 110px; border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); font-size: 10px; text-align: center; }
 .empty-state.compact { min-height: 50px; }
+
+.scene-controls-title { margin-top: 13px; }
+.scene-controls-live { color: var(--cyan); font-size: 8px; letter-spacing: .14em; }
+.deck-magenta .scene-controls-live { color: var(--magenta); }
+.scene-control-grid { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 13px; padding: 11px 12px; border: 1px solid rgba(96,153,191,.27); border-radius: 9px; background: linear-gradient(130deg, rgba(12,28,40,.67), rgba(7,9,18,.73)); }
+.deck-magenta .scene-control-grid { border-color: rgba(180,88,164,.25); background: linear-gradient(130deg, rgba(34,14,35,.62), rgba(7,9,18,.73)); }
+.scene-control { min-width: 0; }
+.scene-control b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .effects-title { margin-top: 15px; }
 .effect-rack { position: relative; z-index: 2; display: grid; gap: 10px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: rgba(4,7,13,0.42); }
@@ -223,6 +239,11 @@ input[type="range"]::-webkit-slider-thumb { width: 12px; height: 12px; border: 2
 .quality-state { color: var(--green); }.revision { font-variant-numeric: tabular-nums; }
 .source-select { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 10px; margin-bottom: 14px; }
 .source-select > span { color: var(--muted); font-size: 8px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+.audio-readiness { margin: -3px 0 11px; color: var(--muted-bright); font-size: 9px; }
+.audio-readiness::before { display: inline-block; width: 6px; height: 6px; margin-right: 7px; border-radius: 50%; content: ''; background: var(--amber); }
+.audio-readiness.active::before { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.audio-readiness.offline { color: var(--amber); }
+.audio-readiness.offline::before { background: var(--red); }
 select { min-width: 0; height: 31px; padding: 0 28px 0 9px; border: 1px solid var(--line); border-radius: 7px; color: #dbe1f0; background: #111522; font-size: 9px; }
 .meters { display: grid; gap: 10px; }
 .meter-label { display: flex; justify-content: space-between; margin-bottom: 4px; color: var(--muted); font-size: 8px; font-variant-numeric: tabular-nums; }
