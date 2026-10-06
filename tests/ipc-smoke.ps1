@@ -104,11 +104,13 @@ try {
     }
     if ($initial.masterEffects.Count -ne 4) { throw 'Master performance controls are missing' }
     $catalogIds = @($initial.sceneCatalog | ForEach-Object { $_.id })
-    foreach ($id in @('hex-vortex', 'ferrofluid-reactor', 'shardwell', 'neon-orbs', 'mirror-cathedral')) {
+    foreach ($id in @('hex-vortex', 'ferrofluid-reactor', 'shardwell', 'neon-orbs', 'mirror-cathedral', 'recursive-circuit')) {
         if ($catalogIds -notcontains $id) { throw "New scene is missing: $id" }
     }
     $mirror = @($initial.sceneCatalog | Where-Object { $_.id -eq 'mirror-cathedral' })[0]
     if (@($mirror.parameters).Count -ne 4) { throw 'Mirror Cathedral live controls are missing' }
+    $circuit = @($initial.sceneCatalog | Where-Object { $_.id -eq 'recursive-circuit' })[0]
+    if (@($circuit.parameters).Count -ne 4) { throw 'Recursive Circuit live controls are missing' }
     # WASAPI enumeration is now off the render thread. Give its source-list
     # event a short window to arrive without making hardware presence a CI gate.
     $discovered = $initial
@@ -136,6 +138,12 @@ try {
     if ($staleParameter.message -notmatch 'Scene parameter unavailable or stale') {
         throw "Wrong stale scene-control rejection: $($staleParameter.message)"
     }
+    Send-Command $client @{ action = 'setScene'; deck = 'B'; sceneId = 'recursive-circuit' }
+    [void](Wait-Snapshot $client { param($state) $state.decks.B.sceneId -eq 'recursive-circuit' })
+    Send-Command $client @{ action = 'setSceneParameter'; deck = 'B'; sceneId = 'recursive-circuit'; index = 2; amount = 0.77 }
+    [void](Wait-Snapshot $client {
+        param($state) [math]::Abs($state.decks.B.sceneParams[2] - 0.77) -lt 0.001
+    })
     Send-Command $client @{ action = 'setScene'; deck = 'B'; sceneId = 'ferrofluid-reactor' }
     Send-Command $client @{ action = 'setCrossfader'; value = 0.7 }
     Send-Command $client @{ action = 'setMasterEffect'; index = 0; amount = 0.35 }
@@ -227,7 +235,7 @@ try {
     } elseif ($TestAudioInput) {
         $maonoResult = 'not present'
     }
-    Write-Output "IPC smoke passed: 1080p sender, Mirror Cathedral controls/stale-command guard, five new scenes, master macros, $($discovered.audio.sources.Count) audio sources, Maono $maonoResult, pipe commands/reconnect, OSC commands/gesture"
+    Write-Output "IPC smoke passed: 1080p sender, Mirror Cathedral and Recursive Circuit controls/stale-command guard, six new scenes, master macros, $($discovered.audio.sources.Count) audio sources, Maono $maonoResult, pipe commands/reconnect, OSC commands/gesture"
 }
 finally {
     if ($client) { $client.Dispose() }

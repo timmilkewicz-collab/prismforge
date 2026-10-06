@@ -34,12 +34,19 @@ float3 shardPigment(float index) {
   return float3(0.62, 0.14, 0.98);
 }
 
+float audioContour(float value, float floor, float knee) {
+  // A bounded knee makes 0.01-0.10 room-mic bands move geometry while
+  // preserving the exact zero-audio shape and avoiding threshold pops.
+  float signal = max(saturate(value) - floor, 0.0);
+  return signal / (signal + knee);
+}
+
 // One screen-space cell describes a differently oriented three-face block.
 // Differently scaled fields provide depth without a per-pixel raymarch.
 // Spatial cell IDs are stable; all movement and lighting evolve continuously.
 float4 debrisLayer(float2 p, float clock, float density, float orbit,
                    float seed, float softness, float brightness,
-                   float visibleFrom, float aperture, float treble,
+                   float visibleFrom, float aperture, float mid, float treble,
                    float accent) {
   float2 g = rotate2(p, clock * orbit + seed * 0.37) * density;
   g += float2(clock * orbit * 1.12, -clock * orbit * 0.73);
@@ -51,10 +58,10 @@ float4 debrisLayer(float2 p, float clock, float density, float orbit,
   float colorSeed = hash21(id * 0.79 + seed * 17.29);
   float placementSeed = hash21(id * 1.83 + seed * 2.43);
   q -= (float2(placementSeed, shapeSeed) - 0.5) * 0.075;
-  q = rotate2(q, clock * (0.17 + 0.32 * orientSeed) +
+  q = rotate2(q, clock * (0.17 + 0.32 * orientSeed) + 0.11 * mid +
                     orientSeed * 6.2831853);
 
-  float halfSize = 0.267 + 0.060 * shapeSeed;
+  float halfSize = (0.267 + 0.060 * shapeSeed) * (1.0 + 0.11 * mid);
   float2 aq = abs(q);
   // A projected cube has six outer edges and three large planar faces. This
   // polygon stays angular even when the nearest layer is softly defocused.
@@ -87,7 +94,7 @@ float4 debrisLayer(float2 p, float clock, float density, float orbit,
                     (1.0 + 0.13 * accent);
   material += facetRidge * block *
               (float3(0.025, 0.034, 0.047) +
-               pigment * emissive * 0.23);
+               pigment * emissive * (0.23 + 0.20 * treble));
 
   // Most cells remain black. Glow belongs to the chosen bright faces, not to
   // the whole frame, and the large foreground layer has a soft focal edge.
@@ -106,8 +113,9 @@ float4 debrisLayer(float2 p, float clock, float density, float orbit,
 float4 main(PSInput input) : SV_TARGET {
   float aspect = resolution.x / max(resolution.y, 1.0);
   float2 p = (input.uv - 0.5) * float2(aspect, 1.0);
-  float low = saturate(bass);
-  float treble = saturate(highs);
+  float low = audioContour(bass, 0.004, 0.043);
+  float mid = audioContour(mids, 0.004, 0.038);
+  float treble = audioContour(highs, 0.003, 0.030);
   float accent = saturate(hit);
 
   // A dark, slightly off-center opening remains visible even during a bass
@@ -123,24 +131,24 @@ float4 main(PSInput input) : SV_TARGET {
   color += wellRim * float3(0.006, 0.019, 0.028);
 
   float4 layer = debrisLayer(p, time, 20.0, 0.052, 1.0, 0.005, 0.55,
-                             0.39, aperture, treble, accent);
+                             0.39, aperture, mid, treble, accent);
   color = color * (1.0 - layer.a) + layer.rgb;
 
 #if QUALITY_TIER <= 1
   layer = debrisLayer(p, time, 12.0, -0.075, 2.0, 0.006, 0.88,
-                      0.44, aperture + 0.020, treble, accent);
+                      0.44, aperture + 0.020, mid, treble, accent);
   color = color * (1.0 - layer.a) + layer.rgb;
 #endif
 
   layer = debrisLayer(p, time, 6.3, 0.099, 3.0, 0.009, 1.0,
-                      0.47, aperture + 0.046, treble, accent);
+                      0.47, aperture + 0.046, mid, treble, accent);
   color = color * (1.0 - layer.a) + layer.rgb;
 
 #if QUALITY_TIER == 0
   // Deliberately large soft blocks float in front of the crisp swarm.
   // Removing this field is the first quality reduction under load.
   layer = debrisLayer(p, time, 2.9, -0.122, 4.0, 0.032, 0.86,
-                      0.61, aperture + 0.19, treble, accent);
+                      0.61, aperture + 0.19, mid, treble, accent);
   color = color * (1.0 - layer.a) + layer.rgb;
 #endif
 

@@ -265,3 +265,38 @@ acceptance, rollback packaging and hash checks are complete.
   input or Arena manipulation was attempted. The exact test-owned Control and
   bounded Engine were stopped; real-music playback-versus-pause visual QA,
   Arena output FPS, mixed-load soak and flash-risk checks remain open.
+
+## Supervised garage preview and recursive-visuals source candidate — 2026-10-05
+
+- The operator put the exact `20261005-185711` package's Spout sender into a
+  fresh, unsaved Resolume Arena composition and selected the current Maono
+  MIC In 1/2 source in Control. The operator observed music-driven motion in
+  Mirror Cathedral. Engine OSC status over eight music-playing seconds showed
+  59.9–60.1 fps at tier 0, RMS 0.0055–0.2034 and Spout ready. An independent
+  receiver counted 600 fresh fixed-size 1920x1080 BGRA8 frames in ten seconds;
+  Arena's Output Monitor visibly showed the scene. Neither a controlled
+  playback-versus-pause comparison nor Arena's own output fps was measured.
+- The first Engine had a 30-minute preview limit. With the operator confirming
+  the setup was off-air, only that verified Engine was stopped gracefully; the
+  same package was restarted without `--seconds` and with `--no-persist`.
+  Resolume recovered the sender. The operator reselected Maono after the
+  restart; a subsequent live RMS/fps sample confirmed signal delivery. This
+  continuity check does not resolve the earlier transient Spout warning under
+  rapid replacement or establish a one-hour soak.
+- On new local branch `codex/recursive-visuals`, Neon Orbs and Shardwell use
+  bounded audio-contour knees matched to ordinary room-mic band levels.
+  Recursive Circuit is a new original five-octave-at-tier-0 folded field with
+  four scene controls and reduced octave counts in degraded tiers. The
+  existing live package and Engine were not modified by these source edits.
+- All 18 manifest shaders compiled across four tiers with `/WX` (72 passes).
+  A fresh Release Engine build and 7/7 native CTests passed. The isolated RTX
+  EffectProbe received distinct Recursive Circuit pixels, verified each of
+  its four controls and bass/mids/highs/hit independently, preserved fixed
+  1080p output through all quality tiers, and passed blackout, panic-dim and
+  hot-reload rollback checks. Quiet-to-music-range fixtures at a fixed time
+  changed 139/576 sampled pixels for Neon Orbs, 134/576 for Shardwell and
+  458/576 for Recursive Circuit; average frame luminance changed by 0.0035,
+  0.0045 and 0.0096 respectively. BMP stills under `build/visual-preview-20261005`
+  are local review artifacts, not bundled scene assets. The new scene has not
+  yet been run into Resolume or judged with live audio; GPU completion timing,
+  Arena output fps, flash-risk monitoring and extended stability remain open.

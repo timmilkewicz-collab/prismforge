@@ -65,7 +65,7 @@ evidence of music reaching the shader.
 - `native/engine`: WASAPI/miniaudio capture, D3D11 scene/deck rendering, Spout
   sender and versioned named-pipe IPC.
 - `native/spike`: independent D3D11→Spout sender/receiver proof.
-- `assets/scenes` and `assets/shaders`: seventeen original scene manifests and HLSL assets.
+- `assets/scenes` and `assets/shaders`: eighteen original scene manifests and HLSL assets.
 - `control`: local React/TypeScript UI and WebView2 host.
 - `docs`: contracts, validation and honest feature status.
 

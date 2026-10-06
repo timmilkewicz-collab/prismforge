@@ -9,18 +9,18 @@
 
 namespace prismforge {
 
-inline constexpr std::array<std::string_view, 17> kSceneIds = {
+inline constexpr std::array<std::string_view, 18> kSceneIds = {
     "ink-tide", "prism-atrium", "chrome-flock", "signal-lab",
     "neon-rift", "media-alchemy", "reaction-bloom", "harmonic-sand",
     "constellation", "fold-temple", "dream-grove", "living-point-cloud",
     "hex-vortex", "ferrofluid-reactor", "shardwell", "neon-orbs",
-    "mirror-cathedral"};
+    "mirror-cathedral", "recursive-circuit"};
 
 struct DeckState {
   std::string sceneId = "ink-tide";
   std::array<float, 4> effects{};
-  // Normalized per-deck controls. Existing scenes ignore these; the current
-  // hero scene maps them to symmetry, depth, aperture and line width.
+  // Normalized per-deck controls. Scenes with manifest parameters interpret
+  // these four values independently; older scenes may ignore them.
   std::array<float, 4> sceneParams{0.5f, 0.5f, 0.5f, 0.5f};
 };
 

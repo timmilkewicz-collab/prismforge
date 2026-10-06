@@ -23,26 +23,33 @@ struct PSInput {
   #define ORB_COUNT 8
 #endif
 
+float audioContour(float value, float floor, float knee) {
+  // Room-mic bands are often only 0.01-0.10. Keep silence at zero while
+  // spending more of the motion range on those levels, without a hard gate.
+  float signal = max(saturate(value) - floor, 0.0);
+  return signal / (signal + knee);
+}
+
 // A synthetic enamel-and-light mobile. No image, cubemap or reference-media
 // samples are used. Most pixels skip the expensive surface work entirely.
 float4 main(PSInput input) : SV_TARGET {
   float aspect = resolution.x / max(resolution.y, 1.0);
   float2 p = (input.uv - 0.5) * float2(aspect, 1.0);
-  float low = saturate(bass);
-  float mid = saturate(mids);
-  float treble = saturate(highs);
+  float low = audioContour(bass, 0.004, 0.043);
+  float mid = audioContour(mids, 0.004, 0.038);
+  float treble = audioContour(highs, 0.003, 0.030);
   float accent = saturate(hit);
   float3 color = float3(0.0010, 0.0010, 0.0014);
 
   // A long orbit gives the performer something that feels suspended rather
   // than screen-saver random. Bass changes spacing, never frame exposure.
-  float2 hub = float2(0.055 + 0.055 * sin(time * 0.18),
+  float2 hub = float2(0.055 + 0.055 * sin(time * 0.18) + 0.018 * low,
                       0.012 + 0.037 * cos(time * 0.23));
   float turn = time * 0.105;
   float turnSin;
   float turnCos;
   sincos(turn, turnSin, turnCos);
-  float spread = 1.0 + 0.13 * low;
+  float spread = 1.0 + 0.23 * low;
 
   [loop] for (int i = 0; i < ORB_COUNT; ++i) {
     float seed = (float)i + 1.0;
@@ -63,7 +70,7 @@ float4 main(PSInput input) : SV_TARGET {
     float depth = frac(seed * 0.75487767);
     float radius = (0.050 + 0.072 * depth) *
                    (0.78 + 0.33 * frac(seed * 0.75487767));
-    radius *= 1.0 + 0.018 * mid;
+    radius *= 1.0 + 0.10 * mid;
     float2 delta = p - center;
     float d2 = dot(delta, delta);
     float reach = radius + 0.071;
@@ -127,7 +134,7 @@ float4 main(PSInput input) : SV_TARGET {
       emission = float3(1.0, 0.43, 0.025);
     }
     float beatSelect = palette > 0.66 ? 1.0 : 0.0;
-    float energy = 1.16 + 0.10 * treble +
+    float energy = 1.16 + 0.32 * treble +
                    0.18 * accent * beatSelect;
     color += emission * luster * energy *
              (0.75 + 0.25 * focus);
@@ -137,7 +144,7 @@ float4 main(PSInput input) : SV_TARGET {
     // bloom, luminance jump or hidden audio-driven flash.
     float halo = (1.0 - smoothstep(radius + 0.001,
                                    radius + 0.071, d)) * (1.0 - body);
-    color += emission * halo * 0.052 *
+    color += emission * halo * 0.052 * (1.0 + 0.30 * treble) *
              (0.45 + 0.55 * focus) *
              (0.35 + 0.65 * segment);
   }

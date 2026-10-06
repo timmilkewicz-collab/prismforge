@@ -32,7 +32,7 @@ struct SceneSpec {
   std::string_view file;
 };
 
-constexpr std::array<SceneSpec, 17> kScenes = {{
+constexpr std::array<SceneSpec, 18> kScenes = {{
     {"ink-tide", "InkTide.hlsl"},
     {"prism-atrium", "PrismAtrium.hlsl"},
     {"chrome-flock", "ChromeFlock.hlsl"},
@@ -50,6 +50,7 @@ constexpr std::array<SceneSpec, 17> kScenes = {{
     {"shardwell", "Shardwell.hlsl"},
     {"neon-orbs", "NeonOrbs.hlsl"},
     {"mirror-cathedral", "MirrorCathedral.hlsl"},
+    {"recursive-circuit", "RecursiveCircuit.hlsl"},
 }};
 
 constexpr char kFullscreenShader[] = R"hlsl(

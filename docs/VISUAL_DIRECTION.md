@@ -21,12 +21,13 @@ PrismForge scenes and shaders remain independently authored.
   exploring that contrast; its dark background is opaque Spout output, not an
   alpha mask.
 
-The current teaser pair is Mirror Cathedral versus Neon Orbs: architectural
+The current live teaser pair is Mirror Cathedral versus Neon Orbs: architectural
 mass against sparse glossy forms. Shardwell remains the denser alternate;
 Hex Vortex and Ferrofluid Reactor remain other portal/material directions.
 The global Motion, Warp, Trails and Color controls and the two-deck crossfader
-are usable, and Mirror Cathedral now has four scene-specific performance
-controls. Equivalent controls for the other scenes are not implemented.
+are usable. Mirror Cathedral and the newer Recursive Circuit candidate each
+have four scene-specific performance controls; equivalent controls for the
+other scenes are not implemented.
 Likewise, direct video ingestion, a venue-safe profile, flash-risk monitoring
 and end-to-end Arena output-FPS proof remain future work. Do not describe the
 four reference clips as bundled content or these visual candidates as
@@ -52,8 +53,12 @@ dimension rather than add another automatic tunnel variation:
    live symmetry/order, panel topology, aperture and line width, with local
    beat accents instead of whole-frame steps. Real music-response and venue
    preview are still acceptance gates (the BC20 and Geometric/Hypnotic direction).
-2. Recursive liquid-circuit field: selectable attractor, echo persistence,
-   bass-driven branch growth and gesture pan (Drawing/Fractal/Reaction).
+2. Recursive liquid-circuit field: the first original **Recursive Circuit**
+   candidate adds folded multi-scale paths, bass-grown branches, mid-driven
+   flow and four live controls. Its isolated GPU tests and still previews do
+   not establish satisfying live motion or venue performance. Echo persistence,
+   a selectable attractor and gesture pan remain future work
+   (Drawing/Fractal/Reaction).
 3. Volumetric crystal swarm: density, orbit radius and focus/depth, with audio
    events redistributing silhouettes rather than flashing the frame
    (Dancer/Particles/Supernova).

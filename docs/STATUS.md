@@ -6,12 +6,15 @@ that Resolume, an audio interface, or the installed live rig works.
 ## Implemented in source
 
 - Two scene decks, crossfader, blackout and panic-dim state.
-- Seventeen original procedural HLSL scenes with a SceneManifestV1 asset,
+- Eighteen original procedural HLSL scenes with a SceneManifestV1 asset,
   including the independently authored Hex Vortex, Ferrofluid Reactor,
-  Shardwell, Neon Orbs and Mirror Cathedral. The latter three use the
+  Shardwell, Neon Orbs, Mirror Cathedral and Recursive Circuit. Shardwell,
+  Neon Orbs and Mirror Cathedral use the
   operator's video library as visual direction; no source footage or frames
   are included. Mirror Cathedral exposes live symmetry, depth, aperture and
-  line-width controls per deck.
+  line-width controls per deck. Recursive Circuit is an original folded
+  liquid-circuit field with Branching, Flow, Depth and Charge controls; it is
+  a source candidate, not yet auditioned in the live Arena feed.
 - Fixed 1920×1080 BGRA8 D3D11 output and `PrismForge` Spout sender.
 - Four actual per-deck GPU effects: Bloom, Feedback, Kaleidoscope and Pixelate.
 - Four default-off master performance controls: Motion, Warp, Trails and Color,
@@ -48,7 +51,7 @@ that Resolume, an audio interface, or the installed live rig works.
 - A separate RTX 4070 D3D11→Spout spike sent 720 frames in 12 seconds at
   1920×1080 BGRA8. An independent Spout receiver on the same host observed 360
   fresh frames over six seconds and 29 changed center-pixel samples.
-- Seventeen HLSL scene passes compile as `ps_5_0` across four tier definitions
+- Eighteen HLSL scene passes compile as `ps_5_0` across four tier definitions
   with warnings treated as errors.
 - The isolated GPU receiver confirms Mirror Cathedral's four live controls and
   synthetic bass/mids/highs/hit inputs each change pixels. This does not yet
@@ -93,6 +96,20 @@ that Resolume, an audio interface, or the installed live rig works.
   In 1/2 input. The exact-package IPC and Control-crash checks, 49 package
   hashes, 7 native, 35 .NET and 8 UI tests also passed. No playback-versus-pause
   visual response or Arena output FPS was measured in this session.
+- In a later supervised garage preview, the operator selected Maono MIC In
+  1/2 and observed Mirror Cathedral reacting to music in Resolume. After an
+  orderly switch from a bounded preview to an unbounded `--no-persist` Engine,
+  OSC status sampled 59.9–60.1 Engine fps at tier 0 with music RMS ranging
+  0.0055–0.2034 and Spout ready. Arena visibly displayed the scene, and an
+  independent receiver counted 600 new fixed-1080p frames in ten seconds.
+  Music-pause comparison and Arena's own output fps were not measured.
+- On the separate `codex/recursive-visuals` source branch, 18 scenes compiled
+  across all four tiers with warnings as errors. Seven Release native tests
+  and an isolated RTX EffectProbe passed. At fixed time, quiet-to-music-range
+  fixtures changed 139/576 sampled pixels for Neon Orbs, 134/576 for
+  Shardwell and 458/576 for Recursive Circuit; all four new scene controls
+  and each of bass, mids, highs and hit changed GPU pixels. These are
+  synthetic checks, not an Arena or live-mic acceptance of the new build.
 
 ## Not yet accepted for live use
 

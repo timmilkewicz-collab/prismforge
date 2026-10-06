@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -107,7 +108,8 @@ bool receive_new_frame(spoutDX& receiver) {
 bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
                          ID3D11DeviceContext* context, std::uint64_t& hash,
                          double* average_luma, std::uint8_t* maximum_rgb,
-                         std::uint64_t* full_frame_hash) {
+                         std::uint64_t* full_frame_hash,
+                         std::array<std::uint32_t, 18 * 32>* grid_pixels) {
   auto* source = receiver.GetSenderTexture();
   if (!source || receiver.GetSenderWidth() != SpoutRender::kOutputWidth ||
       receiver.GetSenderHeight() != SpoutRender::kOutputHeight ||
@@ -133,6 +135,17 @@ bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
       std::memcpy(&pixel, bytes + y * mapped.RowPitch + x * 4, sizeof(pixel));
       hash ^= pixel;
       hash *= 1099511628211ULL;
+    }
+  }
+  if (grid_pixels) {
+    for (unsigned row = 0; row < 18; ++row) {
+      const auto y = (row * desc.Height + desc.Height / 2) / 18;
+      for (unsigned column = 0; column < 32; ++column) {
+        const auto x = (column * desc.Width + desc.Width / 2) / 32;
+        std::memcpy(&(*grid_pixels)[row * 32 + column],
+                    bytes + y * mapped.RowPitch + x * 4,
+                    sizeof(std::uint32_t));
+      }
     }
   }
   if (average_luma || maximum_rgb || full_frame_hash) {
@@ -165,6 +178,51 @@ bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
   return true;
 }
 
+bool capture_received_bmp(spoutDX& receiver, ID3D11Device* device,
+                          ID3D11DeviceContext* context,
+                          const std::filesystem::path& path) {
+  auto* source = receiver.GetSenderTexture();
+  if (!source || receiver.GetSenderWidth() != SpoutRender::kOutputWidth ||
+      receiver.GetSenderHeight() != SpoutRender::kOutputHeight ||
+      receiver.GetSenderFormat() != DXGI_FORMAT_B8G8R8A8_UNORM) return false;
+  D3D11_TEXTURE2D_DESC desc{};
+  source->GetDesc(&desc);
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.BindFlags = 0;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  desc.MiscFlags = 0;
+  ComPtr<ID3D11Texture2D> readback;
+  if (FAILED(device->CreateTexture2D(&desc, nullptr, &readback))) return false;
+  context->CopyResource(readback.Get(), source);
+  D3D11_MAPPED_SUBRESOURCE mapped{};
+  if (FAILED(context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    return false;
+  BITMAPINFOHEADER info{};
+  info.biSize = sizeof(info);
+  info.biWidth = static_cast<LONG>(desc.Width);
+  info.biHeight = static_cast<LONG>(desc.Height);
+  info.biPlanes = 1;
+  info.biBitCount = 32;
+  info.biCompression = BI_RGB;
+  info.biSizeImage = desc.Width * desc.Height * 4;
+  BITMAPFILEHEADER file_header{};
+  file_header.bfType = 0x4d42;
+  file_header.bfOffBits = sizeof(file_header) + sizeof(info);
+  file_header.bfSize = file_header.bfOffBits + info.biSizeImage;
+  std::ofstream file(path, std::ios::binary);
+  if (file) {
+    file.write(reinterpret_cast<const char*>(&file_header), sizeof(file_header));
+    file.write(reinterpret_cast<const char*>(&info), sizeof(info));
+    const auto* bytes = static_cast<const std::uint8_t*>(mapped.pData);
+    for (UINT row = desc.Height; row-- > 0;) {
+      file.write(reinterpret_cast<const char*>(bytes + row * mapped.RowPitch),
+                 desc.Width * 4);
+    }
+  }
+  context->Unmap(readback.Get(), 0);
+  return file.good();
+}
+
 bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
                      ID3D11Device* device, ID3D11DeviceContext* context,
                      const ShowSnapshot& show, double seconds,
@@ -173,7 +231,8 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
                      double* average_luma = nullptr,
                      std::uint8_t* maximum_rgb = nullptr,
                      const SignalFrameV1* signal_override = nullptr,
-                     std::uint64_t* full_frame_hash = nullptr) {
+                     std::uint64_t* full_frame_hash = nullptr,
+                     std::array<std::uint32_t, 18 * 32>* grid_pixels = nullptr) {
   SignalFrameV1 signal{};
   signal.bass = 0.4f;
   signal.mids = 0.3f;
@@ -195,7 +254,8 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
     }
   }
   if (!hash_received_frame(receiver, device, context, hash,
-                           average_luma, maximum_rgb, full_frame_hash)) {
+                           average_luma, maximum_rgb, full_frame_hash,
+                           grid_pixels)) {
     error = "Could not read received Spout pixels";
     return false;
   }
@@ -205,8 +265,16 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "Usage: PrismForge.EffectProbe <assets/shaders directory>\n";
+  if (argc != 2 && (argc != 4 || std::string_view(argv[2]) != "--capture-dir")) {
+    std::cerr << "Usage: PrismForge.EffectProbe <assets/shaders directory> "
+                 "[--capture-dir <existing directory>]\n";
+    return 64;
+  }
+  const std::filesystem::path capture_directory =
+      argc == 4 ? std::filesystem::path(argv[3]) : std::filesystem::path{};
+  if (!capture_directory.empty() &&
+      !std::filesystem::is_directory(capture_directory)) {
+    std::cerr << "Capture directory does not exist\n";
     return 64;
   }
   SpoutRender renderer("PrismForge.EffectProbe");
@@ -278,12 +346,13 @@ int main(int argc, char** argv) {
     double minimumLuma;
     std::uint8_t minimumPeak;
   };
-  constexpr std::array<SceneExpectation, 5> new_scenes = {{{
+  constexpr std::array<SceneExpectation, 6> new_scenes = {{{
       "hex-vortex", 0.07, 80},
       {"ferrofluid-reactor", 0.07, 80},
       {"shardwell", 0.01, 70},
       {"neon-orbs", 0.003, 70},
       {"mirror-cathedral", 0.003, 70},
+      {"recursive-circuit", 0.003, 70},
   }};
   std::array<std::uint64_t, new_scenes.size()> scene_hashes{};
   std::uint64_t previous_scene_hash = last_effect_hash;
@@ -369,6 +438,138 @@ int main(int argc, char** argv) {
     }
     const bool differs = fingerprint != mirror_baseline;
     std::cout << "mirror_audio_" << audio_names[index]
+              << "_differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+
+  // Synthetic .91 band inputs are much hotter than the room-mic signal.
+  // Sample ordinary music-range values and require visible sampled geometry
+  // changes while keeping the average frame luminance bounded.
+  struct ReactiveExpectation {
+    std::string_view id;
+    unsigned minimumChangedSamples;
+  };
+  constexpr std::array<ReactiveExpectation, 3> reactive_scenes = {{{
+      "neon-orbs", 4}, {"shardwell", 8}, {"recursive-circuit", 8},
+  }};
+  SignalFrameV1 quiet_signal{};
+  quiet_signal.bass = 0.004f;
+  quiet_signal.mids = 0.004f;
+  quiet_signal.highs = 0.004f;
+  SignalFrameV1 music_signal{};
+  music_signal.bass = 0.06f;
+  music_signal.mids = 0.08f;
+  music_signal.highs = 0.05f;
+  for (const auto& expectation : reactive_scenes) {
+    show.decks[0].sceneId = std::string(expectation.id);
+    show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+    std::array<std::uint32_t, 18 * 32> quiet_pixels{};
+    std::array<std::uint32_t, 18 * 32> music_pixels{};
+    std::uint64_t quiet_hash = 0;
+    std::uint64_t music_hash = 0;
+    double quiet_luma = 0.0;
+    double music_luma = 0.0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, 3.125, quiet_hash,
+                         error, {1.0f, 60}, &quiet_luma, nullptr,
+                         &quiet_signal, nullptr, &quiet_pixels)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    if (!capture_directory.empty() &&
+        !capture_received_bmp(receiver, receiver_device.Get(),
+                              receiver_context.Get(),
+                              capture_directory /
+                                  (std::string(expectation.id) + "-quiet.bmp"))) {
+      std::cerr << "Could not capture quiet scene frame\n";
+      return 3;
+    }
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, 3.125, music_hash,
+                         error, {1.0f, 60}, &music_luma, nullptr,
+                         &music_signal, nullptr, &music_pixels)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    if (!capture_directory.empty() &&
+        !capture_received_bmp(receiver, receiver_device.Get(),
+                              receiver_context.Get(),
+                              capture_directory /
+                                  (std::string(expectation.id) + "-music.bmp"))) {
+      std::cerr << "Could not capture music-range scene frame\n";
+      return 3;
+    }
+    unsigned changed_samples = 0;
+    for (unsigned index = 0; index < quiet_pixels.size(); ++index) {
+      const auto quiet = quiet_pixels[index];
+      const auto music = music_pixels[index];
+      unsigned channel_delta = 0;
+      for (unsigned channel = 0; channel < 3; ++channel) {
+        const unsigned shift = channel * 8;
+        channel_delta += static_cast<unsigned>(std::abs(
+            static_cast<int>((quiet >> shift) & 0xffu) -
+            static_cast<int>((music >> shift) & 0xffu)));
+      }
+      if (channel_delta >= 12) ++changed_samples;
+    }
+    std::cout << expectation.id << " music_range_changed_samples="
+              << changed_samples << " quiet_luma=" << quiet_luma
+              << " music_luma=" << music_luma << '\n';
+    if (quiet_hash == music_hash ||
+        changed_samples < expectation.minimumChangedSamples ||
+        std::abs(music_luma - quiet_luma) > 0.08) {
+      std::cerr << "Mic-range scene reaction was absent or too global\n";
+      return 3;
+    }
+  }
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  SignalFrameV1 circuit_signal{};
+  circuit_signal.bass = 0.03f;
+  circuit_signal.mids = 0.03f;
+  circuit_signal.highs = 0.03f;
+  auto circuit_fingerprint = [&](const ShowSnapshot& scene,
+                                 const SignalFrameV1& signal,
+                                 std::uint64_t& fingerprint) {
+    std::uint64_t grid_hash = 0;
+    return render_and_hash(renderer, receiver, receiver_device.Get(),
+                           receiver_context.Get(), scene, 4.0, grid_hash,
+                           error, {1.0f, 60}, nullptr, nullptr, &signal,
+                           &fingerprint);
+  };
+  std::uint64_t circuit_baseline = 0;
+  if (!circuit_fingerprint(show, circuit_signal, circuit_baseline)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  constexpr std::array<const char*, 4> circuit_control_names = {
+      "branching", "flow", "depth", "charge"};
+  for (unsigned index = 0; index < circuit_control_names.size(); ++index) {
+    ShowSnapshot variant = show;
+    variant.decks[0].sceneParams[index] = 0.91f;
+    std::uint64_t fingerprint = 0;
+    if (!circuit_fingerprint(variant, circuit_signal, fingerprint)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = fingerprint != circuit_baseline;
+    std::cout << "circuit_control_" << circuit_control_names[index]
+              << "_differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+  for (unsigned index = 0; index < audio_names.size(); ++index) {
+    SignalFrameV1 variant = circuit_signal;
+    if (index == 0) variant.bass = 0.08f;
+    if (index == 1) variant.mids = 0.08f;
+    if (index == 2) variant.highs = 0.08f;
+    if (index == 3) variant.hit = true;
+    std::uint64_t fingerprint = 0;
+    if (!circuit_fingerprint(show, variant, fingerprint)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = fingerprint != circuit_baseline;
+    std::cout << "circuit_audio_" << audio_names[index]
               << "_differs=" << differs << '\n';
     if (!differs) return 3;
   }
