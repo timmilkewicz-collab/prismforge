@@ -298,7 +298,8 @@ bool capture_reactive_trace(const std::filesystem::path& shader_directory,
                             ID3D11DeviceContext* context,
                             const std::filesystem::path& capture_directory,
                             std::string_view name, bool music, bool onset,
-                            ReactiveTrace& trace, std::string& error) {
+                            ReactiveTrace& trace, std::string& error,
+                            float feedback = 0.0f) {
   const std::string sender_name = "PrismForge.EffectProbe." +
       std::string(name);
   SpoutRender renderer(sender_name);
@@ -313,6 +314,7 @@ bool capture_reactive_trace(const std::filesystem::path& shader_directory,
   ShowSnapshot show;
   show.decks[0].sceneId = "recursive-circuit";
   show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.decks[0].effects[1] = feedback;
   show.crossfader = 0.0f;
   const unsigned final_step = music ? 38u : 11u;
   for (unsigned step = 0; step <= final_step; ++step) {
@@ -364,6 +366,57 @@ bool capture_reactive_trace(const std::filesystem::path& shader_directory,
   }
   receiver.ReleaseReceiver();
   receiver.CloseDirectX11();
+  return true;
+}
+
+// Match every render and feedback-history update in two fresh senders. A
+// sequential crossfader A/B in one sender would sample histories after
+// different frame counts, so it cannot establish pixel identity here.
+bool capture_non_recursive_flow_case(
+    const std::filesystem::path& shader_directory, ID3D11Device* device,
+    ID3D11DeviceContext* context, float flow,
+    std::uint64_t& fingerprint, std::string& error) {
+  const std::string sender_name = flow > 0.0f
+      ? "PrismForge.EffectProbe.NonRecursiveFlowOn"
+      : "PrismForge.EffectProbe.NonRecursiveFlowOff";
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name.c_str());
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open non-Recursive Flow Echo receiver";
+    return false;
+  }
+  ShowSnapshot show;
+  show.decks[0].sceneId = "prism-atrium";
+  show.decks[0].sceneParams[1] = flow;
+  show.decks[0].effects[1] = 0.8f;
+  show.crossfader = 0.0f;
+  SignalFrameV1 signal{};
+  signal.rms = 0.06f;
+  signal.bass = 0.018f;
+  signal.mids = 0.014f;
+  signal.highs = 0.011f;
+  constexpr QualityTier quality{0.75f, 60};
+  for (unsigned step = 0; step < 4; ++step) {
+    if (!renderer.Render(show, signal, quality, step * 0.1, error)) {
+      receiver.ReleaseReceiver();
+      receiver.CloseDirectX11();
+      return false;
+    }
+  }
+  std::uint64_t grid_hash = 0;
+  double luma = 0.0;
+  const bool captured = render_and_hash(
+      renderer, receiver, device, context, show, 0.4, grid_hash, error,
+      quality, &luma, nullptr, &signal, &fingerprint);
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  if (!captured) return false;
+  if (!std::isfinite(luma) || luma <= 0.0 || luma >= 0.5) {
+    error = "Non-Recursive feedback frame had invalid luminance";
+    return false;
+  }
   return true;
 }
 
@@ -874,9 +927,86 @@ int main(int argc, char** argv) {
             << " neutral_luma=" << neutral_luma << '\n';
   if (!(combined_luma > neutral_luma * 0.10)) return 3;
 
+  // Exercise the opted-in effect through a scene switch and two internal
+  // resolutions. The output texture is checked by render_and_hash on every
+  // sample; this catches invalid history sampling without assuming that a
+  // scene switch itself clears the deliberately persistent feedback trail.
+  show = ShowSnapshot{};
+  show.crossfader = 0.0f;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.8f, 0.5f, 0.5f};
+  show.decks[0].effects[1] = 0.8f;
+  SignalFrameV1 echo_signal{};
+  echo_signal.rms = 0.06f;
+  echo_signal.bass = 0.018f;
+  echo_signal.mids = 0.014f;
+  echo_signal.highs = 0.011f;
+  constexpr QualityTier reduced_tier{0.75f, 60};
+  double echo_reduced_luma = 0.0;
+  std::uint64_t echo_reduced_hash = 0;
+  if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                       receiver_context.Get(), show, 72.0, echo_reduced_hash,
+                       error, reduced_tier, &echo_reduced_luma, nullptr,
+                       &echo_signal)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  if (renderer.InternalWidth() != 1440 ||
+      renderer.InternalHeight() != 810) return 3;
+  show.decks[0].sceneId = "prism-atrium";
+  std::uint64_t switched_hash = 0;
+  if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                       receiver_context.Get(), show, 72.2, switched_hash,
+                       error, reduced_tier, nullptr, nullptr,
+                       &echo_signal)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  show.decks[0].sceneId = "recursive-circuit";
+  double echo_full_luma = 0.0;
+  std::uint64_t echo_full_hash = 0;
+  if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                       receiver_context.Get(), show, 72.4, echo_full_hash,
+                       error, {1.0f, 60}, &echo_full_luma, nullptr,
+                       &echo_signal)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  const bool echo_switch_resize_ok =
+      echo_reduced_hash != switched_hash &&
+      switched_hash != echo_full_hash &&
+      std::isfinite(echo_reduced_luma) &&
+      std::isfinite(echo_full_luma) &&
+      echo_reduced_luma > 0.0 && echo_reduced_luma < 0.5 &&
+      echo_full_luma > 0.0 && echo_full_luma < 0.5 &&
+      renderer.InternalWidth() == SpoutRender::kOutputWidth &&
+      renderer.InternalHeight() == SpoutRender::kOutputHeight;
+  std::cout << "flow_echo_switch_resize_ok=" << echo_switch_resize_ok
+            << " reduced_luma=" << echo_reduced_luma
+            << " full_luma=" << echo_full_luma << '\n';
+  if (!echo_switch_resize_ok) return 3;
+
   receiver.ReleaseReceiver();
   receiver.CloseDirectX11();
   renderer.Shutdown();
+
+  // Prism Atrium ignores the Flow scene parameter. With Feedback active,
+  // toggling that parameter must leave an otherwise identical matched
+  // timeline pixel-for-pixel unchanged outside Recursive Circuit.
+  std::uint64_t non_recursive_flow_off = 0;
+  std::uint64_t non_recursive_flow_on = 0;
+  if (!capture_non_recursive_flow_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), 0.0f, non_recursive_flow_off, error) ||
+      !capture_non_recursive_flow_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), 1.0f, non_recursive_flow_on, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  std::cout << "flow_echo_non_recursive_unchanged="
+            << (non_recursive_flow_off == non_recursive_flow_on) << '\n';
+  if (non_recursive_flow_off != non_recursive_flow_on) return 3;
 
   // Compare matching timelines rather than a single frame before/after a
   // beat. This distinguishes audio-driven geometry from ordinary time motion
@@ -939,5 +1069,62 @@ int main(int argc, char** argv) {
       early_pulse_luma_delta > 0.10 ||
       late_pulse_luma_delta > early_pulse_luma_delta * 0.75)
     return 3;
+
+  // Compare identical audio timelines with deck Feedback enabled. The
+  // earlier traces are the Feedback-off controls; this set exercises quiet,
+  // sustained music and an onset while Flow Echo advects prior deck frames.
+  // Require received-pixel changes without a runaway full-frame luma jump.
+  ReactiveTrace echo_quiet;
+  ReactiveTrace echo_music;
+  ReactiveTrace echo_music_onset;
+  if (!capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "FlowEchoQuiet", false, false, echo_quiet,
+                              error, 0.8f) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "FlowEchoMusic", true, false, echo_music,
+                              error, 0.8f) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "FlowEchoMusicOnset", true, true,
+                              echo_music_onset, error, 0.8f)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  const unsigned quiet_feedback_change = changed_grid_samples(
+      quiet.samples[4], echo_quiet.samples[4]);
+  const unsigned music_feedback_change = changed_grid_samples(
+      music.samples[4], echo_music.samples[4]);
+  const unsigned onset_feedback_change = changed_grid_samples(
+      music_onset.samples[31], echo_music_onset.samples[31]);
+  const unsigned echo_music_response = changed_grid_samples(
+      echo_quiet.samples[4], echo_music.samples[4]);
+  const unsigned echo_onset_response = changed_grid_samples(
+      echo_music.samples[31], echo_music_onset.samples[31]);
+  const unsigned echo_temporal_change = changed_grid_samples(
+      echo_music.samples[4], echo_music.samples[29]);
+  const std::array<const ReactiveSample*, 6> echo_checkpoints = {{
+      &echo_quiet.samples[4], &echo_music.samples[4],
+      &echo_music.samples[29], &echo_music.samples[31],
+      &echo_music_onset.samples[31], &echo_music_onset.samples[38]}};
+  bool bounded_luminance = true;
+  for (const auto* sample : echo_checkpoints) {
+    bounded_luminance &= std::isfinite(sample->luma) &&
+                         sample->luma > 0.0 && sample->luma < 0.5;
+  }
+  std::cout << "flow_echo_feedback_changes=" << quiet_feedback_change << ','
+            << music_feedback_change << ',' << onset_feedback_change
+            << " music_response=" << echo_music_response
+            << " onset_response=" << echo_onset_response
+            << " temporal_change=" << echo_temporal_change
+            << " bounded_luminance=" << bounded_luminance << '\n';
+  if (quiet_feedback_change < 4 || music_feedback_change < 4 ||
+      onset_feedback_change < 4 || echo_music_response < 12 ||
+      echo_onset_response < 8 || echo_temporal_change < 12 ||
+      !bounded_luminance) {
+    std::cerr << "Flow Echo timeline lacked bounded music or onset motion\n";
+    return 3;
+  }
   return unchanged == 0 ? 0 : 2;
 }

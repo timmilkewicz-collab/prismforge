@@ -93,13 +93,15 @@ cbuffer EffectInputs : register(b0) {
   float pixelate;
   float2 texel;
   float historyReady;
-  float pad;
+  float flowEchoStrength;
   float warp;
   float trails;
   float colorEnergy;
   float motionTime;
   float bass;
-  float3 pad2;
+  float reactiveEnergy;
+  float reactivePulse;
+  float reactiveFlow;
 };
 struct PSInput { float4 position : SV_POSITION; float2 uv : TEXCOORD0; };
 float2 rotate2D(float2 p, float angle) {
@@ -157,6 +159,22 @@ float4 main(PSInput input) : SV_TARGET {
       historyUv = saturate(0.5 + rotate2D(input.uv - 0.5, angle) *
           (1.0 - 0.021 * trails));
     }
+    // Recursive Circuit can gently carry its own history along a smooth
+    // music-driven curl. Feedback remains the explicit opt-in; trails alone
+    // and every other scene retain their original sampling coordinates.
+    if (feedback > 0.001 && flowEchoStrength > 0.001) {
+      float aspect = texel.y / max(texel.x, 0.000001);
+      float2 p = (historyUv - 0.5) * float2(aspect, 1.0);
+      float phaseX = p.x * 6.0 + reactiveFlow * 0.44;
+      float phaseY = p.y * 6.0 - reactiveFlow * 0.32;
+      float2 curl = float2(sin(phaseX) * cos(phaseY) / aspect,
+                            -cos(phaseX) * sin(phaseY));
+      float drive = saturate(0.15 + 0.65 * saturate(reactiveEnergy) +
+                             0.35 * saturate(reactivePulse));
+      float travel = min(0.005, 0.005 * saturate(flowEchoStrength) *
+                         saturate(feedback) * drive);
+      historyUv = saturate(historyUv + curl * travel);
+    }
     float3 previous = historyTexture.Sample(linearSampler, historyUv).rgb;
     // Always retain some current scene contribution, even when both controls
     // are at full strength; otherwise history can decay the image to black.
@@ -196,9 +214,9 @@ static_assert(sizeof(CompositeInputs) == 16);
 
 struct alignas(16) EffectInputs {
   float bloom, feedback, kaleidoscope, pixelate;
-  float texelX, texelY, historyReady, pad;
+  float texelX, texelY, historyReady, flowEchoStrength;
   float warp, trails, colorEnergy, motionTime;
-  float bass, pad2, pad3, pad4;
+  float bass, reactiveEnergy, reactivePulse, reactiveFlow;
 };
 static_assert(sizeof(EffectInputs) == 64);
 
@@ -580,11 +598,16 @@ bool SpoutRender::Render(const ShowSnapshot& show, const SignalFrameV1& signal,
     effect.texelX = 1.0f / width;
     effect.texelY = 1.0f / height;
     effect.historyReady = render.historyValid[deck] ? 1.0f : 0.0f;
+    effect.flowEchoStrength = show.decks[deck].sceneId == "recursive-circuit"
+        ? finite_unit(show.decks[deck].sceneParams[1]) : 0.0f;
     effect.warp = render.smoothedMacros[1];
     effect.trails = render.smoothedMacros[2];
     effect.colorEnergy = render.smoothedMacros[3];
     effect.motionTime = time;
     effect.bass = finite_unit(signal.bass);
+    effect.reactiveEnergy = reactive.energy;
+    effect.reactivePulse = reactive.pulse;
+    effect.reactiveFlow = reactive.flow;
     render.context->UpdateSubresource(render.effectConstants.Get(), 0, nullptr,
                                        &effect, 0, 0);
     render.context->OMSetRenderTargets(

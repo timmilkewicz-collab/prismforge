@@ -8,6 +8,8 @@ on deck A, Maono MIC In 1/2 is receiving music, and Resolume Arena displays the
 the higher Layer 3 was **stopped, not removed** to expose PrismForge; this
 does not establish that the NestDrop application is closed. Do not save or
 rearrange that composition merely to run this preview.
+The later `20261006-001115` Flow Echo package is a separate offline candidate;
+this runbook does not authorize substituting it for the live Engine.
 
 The operator reports that the new motion is a real improvement, but that the
 look remains far short of NestDrop's fluidity and evolving color and shape.

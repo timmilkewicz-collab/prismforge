@@ -140,6 +140,19 @@ that Resolume, an audio interface, or the installed live rig works.
   gain and clipping quality need checking. Windows memory use was 92.7–94.2%
   during this preview, a rig headroom concern. Controlled music-versus-pause,
   Arena output FPS, flash-risk and full mixed-load soak remain unverified.
+- A further **source-only, default-off** Flow Echo candidate reuses the
+  existing per-deck Feedback history for Recursive Circuit. When that deck's
+  Feedback is enabled, its Flow control and the bounded reactive energy,
+  onset and flow clock gently advect the prior image; Feedback at zero and
+  every other scene keep the previous effect path. It allocates no additional
+  GPU textures or show-schema fields. The offline Release Engine built and
+  the isolated RTX EffectProbe passed, including matched feedback timelines,
+  exact non-Recursive output invariance, quality resize/scene switching,
+  bounded luminance, blackout and panic-dim. This is **not** in the running
+  `233633` package and has not been auditioned with Maono in Arena. A separate
+  `20261006-001115` portable candidate contains it; all 50 packaged SHA-256
+  entries match, but exact-package IPC, Control survival and Arena reception
+  have not been retested for that folder.
 
 ## Not yet accepted for live use
 

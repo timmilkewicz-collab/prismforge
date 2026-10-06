@@ -370,3 +370,34 @@ acceptance, rollback packaging and hash checks are complete.
   during the preview; no process was killed or system setting changed. The
   live Engine remains running for supervised play. Flash-risk monitoring,
   Arena output FPS, mixed-load soak and show clearance remain open.
+
+## Flow Echo source-only GPU candidate — 2026-10-06 PT
+
+- The renderer now has an opt-in, Recursive Circuit-only advection of its
+  existing per-deck Feedback history. Feedback at zero and non-Recursive
+  scenes use the original effect sampling path; no new textures, output
+  dimensions, show fields or controller mapping were added. This code is not
+  in the live `20261005-233633` Engine.
+- Offline Release Engine build, 7/7 native CTests and all 18 scene shaders ×
+  four tiers passed. The independent RTX EffectProbe passed with fixed 1080p
+  output, tier resize/scene-switch safety, bounded luma (0.0721 at 75% and
+  0.0904 at full internal scale in that check), blackout, panic-dim, invalid
+  shader-reload rollback and the 30-fps tier gate. Matched fresh senders
+  proved a non-Recursive scene produced an exactly equal full-frame hash when
+  only its unused Flow parameter differed.
+- Against matched Feedback-off traces, Feedback-on quiet/music/onset frames
+  changed 114/303/322 of 576 grid samples. With Feedback on, quiet-to-music,
+  onset and temporal comparisons changed 497/456/517 of 576 samples,
+  respectively, and selected frame luminance remained finite and bounded.
+  These comparisons establish response and containment, but do not isolate
+  the small curl displacement from ordinary Feedback plus the scene's Flow
+  shader; live visual value must still be judged. No Maono-to-Arena audition,
+  Arena output-FPS measurement or flash-risk validation has been done for
+  this candidate.
+- The same Release Engine bytes were copied into separate portable folder
+  `dist/PrismForge-alpha-20261006-001115`, and all 50 SHA-256 manifest entries
+  reverified. Its Engine SHA-256 is
+  `8d99e35de9052c7f4ebab30172e57705465040668e02f6beae441343fd814aaa`;
+  the still-live `233633` Engine has different bytes. The new folder has not
+  passed exact-package IPC or Arena reception and must not be treated as a
+  live replacement on the basis of the source/isolated GPU checks.
