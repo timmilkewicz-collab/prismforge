@@ -486,3 +486,36 @@ acceptance, rollback packaging and hash checks are complete.
   time/hash and moved intact into the ignored validation build directory,
   restoring the prior absent state. The preflight folder was retained as
   `PREFLIGHT-DO-NOT-RUN`; it is not the audition candidate.
+
+## Live Control-link recovery and operator confirmation — 2026-10-06 PT
+
+- The `032359` candidate Engine remained live in Arena while Control alone was
+  replaced by the `215337` control-link hotfix from commit `b3e7b22`. The
+  startup failure was a UI-state race: the one-shot connected status could be
+  evicted before WebView mounted, even while Engine envelopes were arriving.
+  A full `StateSnapshot` is now authoritative connection evidence; partial
+  `SignalFrame` telemetry remains ignored while explicitly offline. The hotfix
+  passed 10/10 Vitest and 35/35 .NET tests with a warning-free Control build.
+- The final hotfix folder has 54 files: 53 matching manifest entries plus
+  `SHA256SUMS.txt`. Manifest SHA-256 is
+  `7f567f7dd660419bccb645653bd966c73a04ce55095bc554e03d4215be09b182`;
+  Control is `84a55a107b9f681b57aa22c30f58bef1bcd3b48edefbd076f805f14bdcc2db07`.
+  Its Engine hash remains the already-running candidate's
+  `2931831b10c4c36baa14ff2d2778f8e604bf87a24f226a6a7edf5b096a77646f`.
+- With Resolume open and music continuously playing, the operator reported that
+  the live combination was "working perfectly." A passive 600.9-second OSC
+  soak received 596 status packets with no timeout: average Engine cadence was
+  59.990 fps, quality stayed at tier 0, RMS ranged 0.000–0.519 and every Spout
+  status was ready. Engine working set stayed 46.6–49.2 MB and Control stayed
+  159.3–159.4 MB. A single 53.096 fps sample paired with a 64.967 catch-up
+  sample. Bounded receiver checks around the soak observed 592 and 600 fresh,
+  changing fixed-1080p BGRA8 frames in ten seconds.
+- Control was gracefully closed for a command-free, 120-second read-only
+  musical telemetry pass, then restored from the same hotfix package without
+  restarting Engine or Arena. Source sample time advanced 119.83 seconds;
+  groove moved through at least 0.013–0.703, buildup reached 0.196 then decayed,
+  peak reached 0.296, release persisted separately, and the event ID remained
+  stable rather than churning. Continuous music kept calm at zero. This is
+  basic live-response and short-soak evidence, not controlled pause/resume,
+  legacy A/B, Arena output-FPS, flash-risk, objective gain/latency, a one-hour
+  mixed-load soak or show clearance.

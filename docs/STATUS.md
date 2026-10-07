@@ -200,7 +200,7 @@ No existing PrismBurst runtime, checkout or shortcut is modified by this repo.
   gaps, seed isolation, render-cadence independence and a 120,000-frame run
   pass; regenerating all eight CSV files is byte-identical.
 - A fresh Release build and 12/12 native CTests pass. All 18 shaders compile at
-  all four tiers, Control passes 8/8 UI and 35/35 .NET tests, source IPC and
+  all four tiers, Control passes 10/10 UI and 35/35 .NET tests, source IPC and
   Control-crash/reconnect checks pass, and the executed isolated GPU probe
   passes musical density/topology/impact/release separation, bounded output,
   blackout, panic dim, all tiers including the 30 fps gate, fixed 1080p output,
@@ -217,11 +217,34 @@ No existing PrismBurst runtime, checkout or shortcut is modified by this repo.
 - With operator permission, the verified `20261005-233633` known-good Engine
   was gracefully stopped to free its sender/pipe/OSC ownership. Its package
   was not modified or replaced. PrismBurst, Resolume compositions, Maono and
-  physical audio routing were not changed. Live music quality, Arena output
-  FPS, flash risk and the mixed-load soak remain operator gates.
+  physical audio routing were not changed. At that checkpoint live music
+  quality, Arena output FPS, flash risk and the mixed-load soak remained
+  operator gates; the supervised evidence below closes only the basic live
+  music-response and short stability gates.
 - The exact portable audition candidate is
   `dist/PrismForge-alpha-20261006-032359-musical-state-operator-ready`.
   All 53 manifest entries match. Exact-package Launcher layout, IPC/reconnect,
   Control-crash survival, normal Launcher startup and legacy rollback startup
   pass. The short Launcher checks opened the existing default capture path but
   did not select a device or change routing; autosave remained absent.
+- The `032359` Engine remained running while Control alone moved to
+  `dist/PrismForge-alpha-20261006-215337-musical-state-control-link-hotfix`
+  after commit `b3e7b22`. The fix treats a full live Engine snapshot as
+  authoritative after WebView startup. It passed 10/10 UI and 35/35 .NET tests;
+  all 53 package-manifest entries match. Arena, Engine, music and audio routing
+  stayed live during the Control-only handoff.
+- With Resolume open and music playing, the operator reported that the current
+  combination was "working perfectly." A 600.9-second passive status soak then
+  received 596 samples with no receive timeout, tier 0 throughout, no Spout-ready
+  failure, 59.990 average Engine fps and RMS from 0.000 to 0.519. Engine memory
+  stayed 46.6–49.2 MB and Control stayed 159.3–159.4 MB. One isolated 53.096 fps
+  sample paired with a 64.967 catch-up sample; cadence otherwise remained near
+  60 fps. Independent ten-second receiver checks before and after the soak saw
+  592 and 600 fresh, changing 1920×1080 BGRA8 frames.
+- A separate 120-second read-only musical-state observation advanced source
+  sample time by 119.83 seconds. Groove moved through at least 0.013–0.703;
+  buildup reached 0.196 and decayed; peak reached 0.296; release persisted
+  independently; and the event ID did not churn. Calm remained zero under the
+  continuous music, so controlled pause/resume decay, legacy A/B, Arena's own
+  output FPS, flash safety, gain/latency quality and the one-hour mixed-load
+  soak remain open. Control was then restored from the same hotfix package.

@@ -2,8 +2,9 @@
 
 `MusicalStateEngine` is the deterministic boundary between PrismForge's raw
 audio analysis and scene-level musical behavior. It is a source candidate on
-`codex/musical-interpretation`; it is not part of the running
-`PrismForge-alpha-20261005-233633` package.
+`codex/musical-interpretation` and is under supervised live audition in
+`PrismForge-alpha-20261006-032359-musical-state-operator-ready`. Recursive
+Circuit remains its only migrated scene, and the candidate is not show-cleared.
 
 ```text
 WASAPI / loopback input

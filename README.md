@@ -14,7 +14,7 @@ For a controlled, not-yet-show-cleared Resolume teaser, see the
 [weekend operator runbook](docs/SHOW_TEASER.md).
 The [visual-direction notes](docs/VISUAL_DIRECTION.md) record how the
 operator's reference clips informed original scenes without bundling footage.
-The source-only [musical interpretation contract](docs/MUSICAL_STATE.md)
+The [musical interpretation contract](docs/MUSICAL_STATE.md)
 documents the deterministic `SignalFrameV1` to `MusicalStateFrameV1` boundary,
 replay fixtures, and Recursive Circuit rollback flag.
 The [Recursive Circuit live-audition gate](docs/MUSICAL_STATE_AUDITION.md)
