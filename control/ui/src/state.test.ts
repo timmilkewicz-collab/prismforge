@@ -39,6 +39,28 @@ describe('viewReducer', () => {
     expect(state.engine.performance.fps).toBe(59.8)
   })
 
+  it('recognizes a live Engine snapshot when the startup HostStatus message was missed', () => {
+    const snapshot = viewReducer(initialViewState(), {
+      type: 'engine-envelope',
+      envelope: { version: 1, type: 'StateSnapshot', payload: { revision: 9 } },
+    })
+    expect(snapshot.connection).toBe('connected')
+    expect(snapshot.connectionMessage).toBe('Engine connected')
+  })
+
+  it('uses a fresh snapshot to recover an explicit offline status', () => {
+    const offline = viewReducer(initialViewState(), {
+      type: 'host-status',
+      message: { kind: 'HostStatus', payload: { status: 'error', attempt: 1, message: 'Protocol error' } },
+    })
+    const recovered = viewReducer(offline, {
+      type: 'engine-envelope',
+      envelope: { version: 1, type: 'StateSnapshot', payload: { revision: 10 } },
+    })
+    expect(recovered.connection).toBe('connected')
+    expect(recovered.engine.revision).toBe(10)
+  })
+
   it('clears live telemetry on disconnect and waits for fresh data after reconnect', () => {
     const hostStatus = (status: HostStatusMessage['payload']['status'], message: string): HostStatusMessage => ({
       kind: 'HostStatus', payload: { status, attempt: 1, message },
@@ -77,15 +99,12 @@ describe('viewReducer', () => {
     const reconnecting = viewReducer(lost, {
       type: 'host-status', message: hostStatus('connecting', 'Looking for Engine'),
     })
-    const reconnected = viewReducer(reconnecting, {
-      type: 'host-status', message: hostStatus('connected', 'Engine connected'),
-    })
-    expect(reconnected.engine.audio.receiving).toBe(false)
-    expect(reconnected.masterEffectsAvailable).toBe(false)
-    expect(reconnected.engine.performance.fps).toBe(0)
-    expect(reconnected.engine.output.spout.ready).toBe(false)
+    expect(reconnecting.engine.audio.receiving).toBe(false)
+    expect(reconnecting.masterEffectsAvailable).toBe(false)
+    expect(reconnecting.engine.performance.fps).toBe(0)
+    expect(reconnecting.engine.output.spout.ready).toBe(false)
 
-    const fresh = viewReducer(reconnected, { type: 'engine-envelope', envelope: {
+    const fresh = viewReducer(reconnecting, { type: 'engine-envelope', envelope: {
       version: 1, type: 'StateSnapshot', payload: {
         audio: { connected: true, receiving: true, rms: 0.2, peak: 0.5 },
         performance: { fps: 60 },
@@ -95,6 +114,7 @@ describe('viewReducer', () => {
     expect(fresh.engine.audio).toMatchObject({ connected: true, receiving: true, rms: 0.2, peak: 0.5 })
     expect(fresh.engine.performance.fps).toBe(60)
     expect(fresh.engine.output.spout.ready).toBe(true)
+    expect(fresh.connection).toBe('connected')
   })
 
   it('optimistically clamps and isolates a master macro change', () => {

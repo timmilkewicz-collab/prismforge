@@ -99,7 +99,7 @@ export function viewReducer(state: HostViewState, action: ViewAction): HostViewS
     case 'engine-envelope': {
       const { envelope } = action
       if (envelope.version !== 1) return state
-      if ((envelope.type === 'StateSnapshot' || envelope.type === 'SignalFrame') &&
+      if (envelope.type === 'SignalFrame' &&
         (state.connection === 'disconnected' || state.connection === 'error')) return state
 
       if (envelope.type === 'StateSnapshot') {
@@ -109,6 +109,11 @@ export function viewReducer(state: HostViewState, action: ViewAction): HostViewS
           snapshot.masterEffects.length === 4
         return {
           ...state,
+          // A full Engine snapshot is authoritative evidence that this IPC session is live.
+          // This also recovers when the one-shot connected HostStatus arrived
+          // before the WebView message listener finished mounting.
+          connection: 'connected',
+          connectionMessage: 'Engine connected',
           masterEffectsAvailable,
           engine: {
             ...state.engine,
