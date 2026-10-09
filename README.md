@@ -10,6 +10,16 @@ PrismBurst. PrismBurst and its launchers are deliberately untouched. The
 [implementation status](docs/STATUS.md) distinguishes proven work from pending
 venue tests and planned features. See the dated [validation record](docs/VALIDATION.md)
 for exact build, GPU, IPC and device evidence.
+For a controlled, not-yet-show-cleared Resolume teaser, see the
+[weekend operator runbook](docs/SHOW_TEASER.md).
+The [visual-direction notes](docs/VISUAL_DIRECTION.md) record how the
+operator's reference clips informed original scenes without bundling footage.
+The [musical interpretation contract](docs/MUSICAL_STATE.md)
+documents the deterministic `SignalFrameV1` to `MusicalStateFrameV1` boundary,
+replay fixtures, and Recursive Circuit rollback flag.
+The [Recursive Circuit live-audition gate](docs/MUSICAL_STATE_AUDITION.md)
+defines the supervised candidate/legacy comparison without changing Resolume,
+PrismBurst, or physical audio routing.
 
 ## Build on Windows
 
@@ -50,14 +60,19 @@ or alter PrismBurst.
 reconnect and OSC without saving show state. `tests/ui-crash-survival.ps1
 -EnginePath <engine-exe> -ControlPath <control-exe>` starts only test-owned
 processes and verifies output survives a hard Control exit.
+`tests/audio-signal-smoke.ps1 -EnginePath <engine-exe>` is a separate bounded
+aggregate-only check for the selected real audio endpoint. See
+[audio live check](docs/AUDIO_LIVE_CHECK.md); a connected device alone is not
+evidence of music reaching the shader.
 
 ## Repository map
 
-- `native/core`: signal analysis, show state, bounded queues and adaptive tiers.
+- `native/core`: signal and musical-state analysis, show state, bounded queues
+  and adaptive tiers.
 - `native/engine`: WASAPI/miniaudio capture, D3D11 scene/deck rendering, Spout
   sender and versioned named-pipe IPC.
 - `native/spike`: independent D3D11→Spout sender/receiver proof.
-- `assets/scenes` and `assets/shaders`: twelve original scene manifests and HLSL assets.
+- `assets/scenes` and `assets/shaders`: eighteen original scene manifests and HLSL assets.
 - `control`: local React/TypeScript UI and WebView2 host.
 - `docs`: contracts, validation and honest feature status.
 

@@ -5,14 +5,18 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $engine = (Resolve-Path -LiteralPath $EnginePath).Path
-$process = Start-Process -FilePath $engine -ArgumentList @('--seconds', '20', '--no-audio', '--no-persist') `
+if (Get-Process -Name 'PrismForge.Engine' -ErrorAction SilentlyContinue) {
+    throw 'IPC smoke requires no existing PrismForge Engine; refusing to control a live show.'
+}
+$process = Start-Process -FilePath $engine -ArgumentList @('--seconds', '30', '--no-audio', '--no-persist') `
     -PassThru -WindowStyle Hidden
 $client = $null
 
 function Open-Client {
     $pipe = [System.IO.Pipes.NamedPipeClientStream]::new(
         '.', 'PrismForge.v1', [System.IO.Pipes.PipeDirection]::InOut)
-    $pipe.Connect(8000)
+    # Cold startup compiles all scene/tier shader variants before IPC opens.
+    $pipe.Connect(30000)
     return $pipe
 }
 
@@ -95,6 +99,18 @@ try {
         throw 'Initial Spout state is wrong'
     }
     if ($initial.audio.sources.Count -lt 1) { throw 'No audio sources enumerated' }
+    if ($initial.audio.connected -or $initial.audio.receiving) {
+        throw '--no-audio incorrectly reports an active or receiving capture'
+    }
+    if ($initial.masterEffects.Count -ne 4) { throw 'Master performance controls are missing' }
+    $catalogIds = @($initial.sceneCatalog | ForEach-Object { $_.id })
+    foreach ($id in @('hex-vortex', 'ferrofluid-reactor', 'shardwell', 'neon-orbs', 'mirror-cathedral', 'recursive-circuit')) {
+        if ($catalogIds -notcontains $id) { throw "New scene is missing: $id" }
+    }
+    $mirror = @($initial.sceneCatalog | Where-Object { $_.id -eq 'mirror-cathedral' })[0]
+    if (@($mirror.parameters).Count -ne 4) { throw 'Mirror Cathedral live controls are missing' }
+    $circuit = @($initial.sceneCatalog | Where-Object { $_.id -eq 'recursive-circuit' })[0]
+    if (@($circuit.parameters).Count -ne 4) { throw 'Recursive Circuit live controls are missing' }
     # WASAPI enumeration is now off the render thread. Give its source-list
     # event a short window to arrive without making hardware presence a CI gate.
     $discovered = $initial
@@ -105,12 +121,40 @@ try {
             $discovered = $message.payload
         }
     }
-    Send-Command $client @{ action = 'setScene'; deck = 'A'; sceneId = 'neon-rift' }
+    Send-Command $client @{ action = 'setScene'; deck = 'A'; sceneId = 'mirror-cathedral' }
+    [void](Wait-Snapshot $client { param($state) $state.decks.A.sceneId -eq 'mirror-cathedral' })
+    Send-Command $client @{ action = 'setSceneParameter'; deck = 'A'; sceneId = 'mirror-cathedral'; index = 0; amount = 0.82 }
+    [void](Wait-Snapshot $client {
+        param($state) [math]::Abs($state.decks.A.sceneParams[0] - 0.82) -lt 0.001
+    })
+    Send-Command $client @{ action = 'setSceneParameter'; deck = 'A'; sceneId = 'mirror-cathedral'; index = 3; amount = 0.14 }
+    [void](Wait-Snapshot $client {
+        param($state) [math]::Abs($state.decks.A.sceneParams[3] - 0.14) -lt 0.001
+    })
+    Send-Command $client @{ action = 'setScene'; deck = 'A'; sceneId = 'hex-vortex' }
+    [void](Wait-Snapshot $client { param($state) $state.decks.A.sceneId -eq 'hex-vortex' })
+    Send-Command $client @{ action = 'setSceneParameter'; deck = 'A'; sceneId = 'mirror-cathedral'; index = 0; amount = 0.1 }
+    $staleParameter = Wait-Error $client
+    if ($staleParameter.message -notmatch 'Scene parameter unavailable or stale') {
+        throw "Wrong stale scene-control rejection: $($staleParameter.message)"
+    }
+    Send-Command $client @{ action = 'setScene'; deck = 'B'; sceneId = 'recursive-circuit' }
+    [void](Wait-Snapshot $client { param($state) $state.decks.B.sceneId -eq 'recursive-circuit' })
+    Send-Command $client @{ action = 'setSceneParameter'; deck = 'B'; sceneId = 'recursive-circuit'; index = 2; amount = 0.77 }
+    [void](Wait-Snapshot $client {
+        param($state) [math]::Abs($state.decks.B.sceneParams[2] - 0.77) -lt 0.001
+    })
+    Send-Command $client @{ action = 'setScene'; deck = 'B'; sceneId = 'ferrofluid-reactor' }
     Send-Command $client @{ action = 'setCrossfader'; value = 0.7 }
+    Send-Command $client @{ action = 'setMasterEffect'; index = 0; amount = 0.35 }
+    Send-Command $client @{ action = 'setMasterEffect'; index = 1; amount = 0.2 }
     $changed = Wait-Snapshot $client {
         param($state)
-        $state.decks.A.sceneId -eq 'neon-rift' -and
-            [math]::Abs($state.crossfader - 0.7) -lt 0.001
+        $state.decks.A.sceneId -eq 'hex-vortex' -and
+            $state.decks.B.sceneId -eq 'ferrofluid-reactor' -and
+            [math]::Abs($state.crossfader - 0.7) -lt 0.001 -and
+            [math]::Abs($state.masterEffects[0] - 0.35) -lt 0.001 -and
+            [math]::Abs($state.masterEffects[1] - 0.2) -lt 0.001
     }
     Send-Command $client @{ action = 'setScene'; deck = 'A'; sceneId = 'not-a-scene' }
     $rejected = Wait-Error $client
@@ -132,11 +176,21 @@ try {
     $client.Dispose()
     $client = Open-Client
     $afterReconnect = Wait-Snapshot $client {
-        param($state) $state.decks.A.sceneId -eq 'neon-rift'
+        param($state) $state.decks.A.sceneId -eq 'hex-vortex'
     }
     if ([math]::Abs($afterReconnect.crossfader - 0.7) -ge 0.001) {
         throw 'State was lost on control reconnect'
     }
+    if ([math]::Abs($afterReconnect.masterEffects[0] - 0.35) -ge 0.001) {
+        throw 'Master macro state was lost on control reconnect'
+    }
+    Send-Command $client @{ action = 'setScene'; deck = 'A'; sceneId = 'shardwell' }
+    Send-Command $client @{ action = 'setScene'; deck = 'B'; sceneId = 'neon-orbs' }
+    [void](Wait-Snapshot $client {
+        param($state)
+        $state.decks.A.sceneId -eq 'shardwell' -and
+            $state.decks.B.sceneId -eq 'neon-orbs'
+    })
 
     $osc = [System.Collections.Generic.List[byte]]::new()
     Add-OscString $osc '/prismforge/crossfader'
@@ -181,7 +235,7 @@ try {
     } elseif ($TestAudioInput) {
         $maonoResult = 'not present'
     }
-    Write-Output "IPC smoke passed: 1080p sender, $($discovered.audio.sources.Count) audio sources, Maono $maonoResult, pipe commands/reconnect, OSC commands/gesture"
+    Write-Output "IPC smoke passed: 1080p sender, Mirror Cathedral and Recursive Circuit controls/stale-command guard, six new scenes, master macros, $($discovered.audio.sources.Count) audio sources, Maono $maonoResult, pipe commands/reconnect, OSC commands/gesture"
 }
 finally {
     if ($client) { $client.Dispose() }

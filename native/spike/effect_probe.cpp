@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -19,6 +20,7 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -59,8 +61,9 @@ bool copy_shaders_for_probe(const std::filesystem::path& source,
     }
     result.copiedFiles.push_back(copy);
   }
-  if (result.copiedFiles.size() != 12) {
-    error = "Expected exactly 12 scene shaders for the hot-reload probe";
+  if (result.copiedFiles.size() != kSceneIds.size()) {
+    error = "Expected exactly " + std::to_string(kSceneIds.size()) +
+            " scene shaders for the hot-reload probe";
     return false;
   }
   return true;
@@ -90,8 +93,12 @@ bool create_receiver_device(ComPtr<ID3D11Device>& device) {
 }
 
 bool receive_new_frame(spoutDX& receiver) {
-  for (int retry = 0; retry < 200; ++retry) {
-    if (receiver.ReceiveTexture() && receiver.IsConnected() &&
+  for (int retry = 0; retry < 500; ++retry) {
+    const bool received = receiver.ReceiveTexture();
+    // Spout pauses copies while its sender-update flag is set; clear that
+    // flag before trusting IsFrameNew or the previous texture can look new.
+    if (receiver.IsUpdated()) continue;
+    if (received && receiver.IsConnected() &&
         receiver.IsFrameNew() && receiver.GetSenderTexture()) return true;
     std::this_thread::sleep_for(std::chrono::milliseconds(2));
   }
@@ -100,7 +107,9 @@ bool receive_new_frame(spoutDX& receiver) {
 
 bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
                          ID3D11DeviceContext* context, std::uint64_t& hash,
-                         double* average_luma, std::uint8_t* maximum_rgb) {
+                         double* average_luma, std::uint8_t* maximum_rgb,
+                         std::uint64_t* full_frame_hash,
+                         std::array<std::uint32_t, 18 * 32>* grid_pixels) {
   auto* source = receiver.GetSenderTexture();
   if (!source || receiver.GetSenderWidth() != SpoutRender::kOutputWidth ||
       receiver.GetSenderHeight() != SpoutRender::kOutputHeight ||
@@ -128,16 +137,33 @@ bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
       hash *= 1099511628211ULL;
     }
   }
-  if (average_luma || maximum_rgb) {
+  if (grid_pixels) {
+    for (unsigned row = 0; row < 18; ++row) {
+      const auto y = (row * desc.Height + desc.Height / 2) / 18;
+      for (unsigned column = 0; column < 32; ++column) {
+        const auto x = (column * desc.Width + desc.Width / 2) / 32;
+        std::memcpy(&(*grid_pixels)[row * 32 + column],
+                    bytes + y * mapped.RowPitch + x * 4,
+                    sizeof(std::uint32_t));
+      }
+    }
+  }
+  if (average_luma || maximum_rgb || full_frame_hash) {
     std::uint64_t total = 0;
     std::uint8_t maximum = 0;
+    std::uint64_t full_hash = 1469598103934665603ULL;
     for (UINT y = 0; y < desc.Height; ++y) {
       const auto* scanline = bytes + y * mapped.RowPitch;
       for (UINT x = 0; x < desc.Width; ++x) {
         const auto* pixel = scanline + x * 4;
-        total += pixel[0] + pixel[1] + pixel[2];
+        if (average_luma) total += pixel[0] + pixel[1] + pixel[2];
         for (unsigned channel = 0; channel < 3; ++channel) {
-          if (pixel[channel] > maximum) maximum = pixel[channel];
+          if (maximum_rgb && pixel[channel] > maximum)
+            maximum = pixel[channel];
+          if (full_frame_hash) {
+            full_hash ^= pixel[channel];
+            full_hash *= 1099511628211ULL;
+          }
         }
       }
     }
@@ -146,9 +172,55 @@ bool hash_received_frame(spoutDX& receiver, ID3D11Device* device,
                       (3.0 * 255.0 * desc.Width * desc.Height);
     }
     if (maximum_rgb) *maximum_rgb = maximum;
+    if (full_frame_hash) *full_frame_hash = full_hash;
   }
   context->Unmap(readback.Get(), 0);
   return true;
+}
+
+bool capture_received_bmp(spoutDX& receiver, ID3D11Device* device,
+                          ID3D11DeviceContext* context,
+                          const std::filesystem::path& path) {
+  auto* source = receiver.GetSenderTexture();
+  if (!source || receiver.GetSenderWidth() != SpoutRender::kOutputWidth ||
+      receiver.GetSenderHeight() != SpoutRender::kOutputHeight ||
+      receiver.GetSenderFormat() != DXGI_FORMAT_B8G8R8A8_UNORM) return false;
+  D3D11_TEXTURE2D_DESC desc{};
+  source->GetDesc(&desc);
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.BindFlags = 0;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  desc.MiscFlags = 0;
+  ComPtr<ID3D11Texture2D> readback;
+  if (FAILED(device->CreateTexture2D(&desc, nullptr, &readback))) return false;
+  context->CopyResource(readback.Get(), source);
+  D3D11_MAPPED_SUBRESOURCE mapped{};
+  if (FAILED(context->Map(readback.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    return false;
+  BITMAPINFOHEADER info{};
+  info.biSize = sizeof(info);
+  info.biWidth = static_cast<LONG>(desc.Width);
+  info.biHeight = static_cast<LONG>(desc.Height);
+  info.biPlanes = 1;
+  info.biBitCount = 32;
+  info.biCompression = BI_RGB;
+  info.biSizeImage = desc.Width * desc.Height * 4;
+  BITMAPFILEHEADER file_header{};
+  file_header.bfType = 0x4d42;
+  file_header.bfOffBits = sizeof(file_header) + sizeof(info);
+  file_header.bfSize = file_header.bfOffBits + info.biSizeImage;
+  std::ofstream file(path, std::ios::binary);
+  if (file) {
+    file.write(reinterpret_cast<const char*>(&file_header), sizeof(file_header));
+    file.write(reinterpret_cast<const char*>(&info), sizeof(info));
+    const auto* bytes = static_cast<const std::uint8_t*>(mapped.pData);
+    for (UINT row = desc.Height; row-- > 0;) {
+      file.write(reinterpret_cast<const char*>(bytes + row * mapped.RowPitch),
+                 desc.Width * 4);
+    }
+  }
+  context->Unmap(readback.Get(), 0);
+  return file.good();
 }
 
 bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
@@ -157,33 +229,418 @@ bool render_and_hash(SpoutRender& renderer, spoutDX& receiver,
                      std::uint64_t& hash, std::string& error,
                      const QualityTier& quality = QualityTier{1.0f, 60},
                      double* average_luma = nullptr,
-                     std::uint8_t* maximum_rgb = nullptr) {
+                      std::uint8_t* maximum_rgb = nullptr,
+                      const SignalFrameV1* signal_override = nullptr,
+                      std::uint64_t* full_frame_hash = nullptr,
+                      std::array<std::uint32_t, 18 * 32>* grid_pixels = nullptr,
+                      const MusicalStateFrameV1* musical_override = nullptr,
+                      bool use_musical_recursive_audio = false) {
   SignalFrameV1 signal{};
   signal.bass = 0.4f;
   signal.mids = 0.3f;
   signal.highs = 0.2f;
-  if (!renderer.Render(show, signal, quality, seconds, error))
-    return false;
-  if (!receive_new_frame(receiver)) {
-    error = "Receiver did not observe a new Spout frame";
-    return false;
+  if (signal_override) signal = *signal_override;
+  MusicalStateFrameV1 musical{};
+  if (musical_override) musical = *musical_override;
+  // Shared D3D readback can lag several Spout frame counters on this driver,
+  // especially immediately after resizing. Settle a same-time frame train
+  // before sampling; the 30 fps gate is checked separately below.
+  const unsigned frames = quality.targetFps > 30 ? 16u : 1u;
+  for (unsigned frame = 0; frame < frames; ++frame) {
+    if (!renderer.Render(show, signal, musical,
+                         use_musical_recursive_audio, quality, seconds,
+                         error)) return false;
+    // Pace the receiver like a live 60 Hz consumer; a tight CPU loop can run
+    // far ahead of queued sender GPU work and sample the prior effect/scene.
+    if (quality.targetFps > 30)
+      std::this_thread::sleep_for(std::chrono::milliseconds(17));
+    if (!receive_new_frame(receiver)) {
+      error = "Receiver did not observe a new Spout frame";
+      return false;
+    }
   }
   if (!hash_received_frame(receiver, device, context, hash,
-                           average_luma, maximum_rgb)) {
+                           average_luma, maximum_rgb, full_frame_hash,
+                           grid_pixels)) {
     error = "Could not read received Spout pixels";
     return false;
   }
   return true;
 }
 
+struct ReactiveSample {
+  std::uint64_t hash = 0;
+  double luma = 0.0;
+  std::array<std::uint32_t, 18 * 32> pixels{};
+};
+
+struct ReactiveTrace {
+  std::array<ReactiveSample, 39> samples{};
+};
+
+unsigned changed_grid_samples(const ReactiveSample& a,
+                              const ReactiveSample& b,
+                              unsigned minimum_channel_delta = 12) {
+  unsigned changed = 0;
+  for (unsigned index = 0; index < a.pixels.size(); ++index) {
+    unsigned channel_delta = 0;
+    for (unsigned channel = 0; channel < 3; ++channel) {
+      const unsigned shift = channel * 8;
+      channel_delta += static_cast<unsigned>(std::abs(
+          static_cast<int>((a.pixels[index] >> shift) & 0xffu) -
+          static_cast<int>((b.pixels[index] >> shift) & 0xffu)));
+    }
+    if (channel_delta >= minimum_channel_delta) ++changed;
+  }
+  return changed;
+}
+
+// Independent sender names keep these synthetic timelines away from both the
+// live PrismForge source and the main EffectProbe sender. The traces render
+// at <=100 ms steps so the reactive integrator's stall clamp is not mistaken
+// for its ordinary music response.
+bool capture_reactive_trace(const std::filesystem::path& shader_directory,
+                            ID3D11Device* device,
+                            ID3D11DeviceContext* context,
+                            const std::filesystem::path& capture_directory,
+                            std::string_view name, bool music, bool onset,
+                            ReactiveTrace& trace, std::string& error,
+                            float feedback = 0.0f) {
+  const std::string sender_name = "PrismForge.EffectProbe." +
+      std::string(name);
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name.c_str());
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open reactive timeline Spout receiver";
+    return false;
+  }
+
+  ShowSnapshot show;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.decks[0].effects[1] = feedback;
+  show.crossfader = 0.0f;
+  const unsigned final_step = music ? 38u : 11u;
+  for (unsigned step = 0; step <= final_step; ++step) {
+    SignalFrameV1 signal{};
+    signal.rms = music ? 0.06f : 0.005f;
+    signal.bass = music ? 0.018f : 0.002f;
+    signal.mids = music ? 0.014f : 0.002f;
+    signal.highs = music ? 0.011f : 0.002f;
+    const unsigned hit_step = music ? 30u : 5u;
+    if (onset && step >= hit_step) signal.hitCount = 1;
+    if (onset && step == hit_step) {
+      signal.hit = true;
+      signal.accent = music;
+    }
+    const double seconds = static_cast<double>(step) * 0.1;
+    const bool checkpoint = step == 4 ||
+        (!music && (step == 5 || step == 6 || step == 10 || step == 11)) ||
+        (music && (step == 29 || step == 30 || step == 31 ||
+                   step == 34 || step == 38));
+    if (checkpoint) {
+      auto& sample = trace.samples[step];
+      if (!render_and_hash(renderer, receiver, device, context, show, seconds,
+                           sample.hash, error, {1.0f, 60}, &sample.luma,
+                           nullptr, &signal, nullptr, &sample.pixels)) {
+        receiver.ReleaseReceiver();
+        receiver.CloseDirectX11();
+        return false;
+      }
+      if (!capture_directory.empty() &&
+          ((step == 4 && !onset) || (step == 6 && onset && !music) ||
+           (step == 11 && onset && !music) ||
+           (step == 31 && onset && music) ||
+           (step == 38 && onset && music))) {
+        const auto path = capture_directory /
+            ("reactive-" + std::string(name) + "-" +
+             std::to_string(step) + ".bmp");
+        if (!capture_received_bmp(receiver, device, context, path)) {
+          error = "Could not capture reactive timeline frame";
+          receiver.ReleaseReceiver();
+          receiver.CloseDirectX11();
+          return false;
+        }
+      }
+    } else if (!renderer.Render(show, signal, {}, false, {1.0f, 60},
+                                seconds, error)) {
+      receiver.ReleaseReceiver();
+      receiver.CloseDirectX11();
+      return false;
+    }
+  }
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  return true;
+}
+
+// Match every render and feedback-history update in two fresh senders. A
+// sequential crossfader A/B in one sender would sample histories after
+// different frame counts, so it cannot establish pixel identity here.
+bool capture_non_recursive_flow_case(
+    const std::filesystem::path& shader_directory, ID3D11Device* device,
+    ID3D11DeviceContext* context, float flow,
+    std::uint64_t& fingerprint, std::string& error,
+    bool musical_mode = false) {
+  std::string sender_name = flow > 0.0f
+      ? "PrismForge.EffectProbe.NonRecursiveFlowOn"
+      : "PrismForge.EffectProbe.NonRecursiveFlowOff";
+  sender_name += musical_mode ? ".Musical" : ".Legacy";
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name.c_str());
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open non-Recursive Flow Echo receiver";
+    return false;
+  }
+  ShowSnapshot show;
+  show.decks[0].sceneId = "prism-atrium";
+  show.decks[0].sceneParams[1] = flow;
+  show.decks[0].effects[1] = 0.8f;
+  show.crossfader = 0.0f;
+  SignalFrameV1 signal{};
+  signal.rms = 0.06f;
+  signal.bass = 0.018f;
+  signal.mids = 0.014f;
+  signal.highs = 0.011f;
+  MusicalStateFrameV1 musical{};
+  musical.sourceSampleIndex = 48'000;
+  musical.eventId = 0x4D55534943414C31ULL;
+  musical.immediateEnergy = 0.8f;
+  musical.onsetEnvelope = 0.7f;
+  musical.accentEnvelope = 0.5f;
+  musical.grooveEnergy = 0.75f;
+  musical.sustainedEnergy = 0.65f;
+  musical.energyTrend = 0.4f;
+  musical.building = 0.7f;
+  musical.driving = 0.8f;
+  musical.peak = 0.5f;
+  constexpr QualityTier quality{0.75f, 60};
+  for (unsigned step = 0; step < 4; ++step) {
+    musical.sourceSampleIndex += 4'800;
+    if (!renderer.Render(show, signal, musical, musical_mode, quality,
+                         step * 0.1, error)) {
+      receiver.ReleaseReceiver();
+      receiver.CloseDirectX11();
+      return false;
+    }
+  }
+  std::uint64_t grid_hash = 0;
+  double luma = 0.0;
+  const bool captured = render_and_hash(
+      renderer, receiver, device, context, show, 0.4, grid_hash, error,
+      quality, &luma, nullptr, &signal, &fingerprint, nullptr, &musical,
+      musical_mode);
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  if (!captured) return false;
+  if (!std::isfinite(luma) || luma <= 0.0 || luma >= 0.5) {
+    error = "Non-Recursive feedback frame had invalid luminance";
+    return false;
+  }
+  return true;
+}
+
+struct MusicalSceneTrace {
+  std::array<ReactiveSample, 5> samples{};
+};
+
+bool capture_musical_scene_trace(
+    const std::filesystem::path& shader_directory, ID3D11Device* device,
+    ID3D11DeviceContext* context, MusicalSceneTrace& trace,
+    std::string& error) {
+  constexpr const char* sender_name =
+      "PrismForge.EffectProbe.MusicalRecursiveTimeline";
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name);
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open Musical Recursive timeline receiver";
+    return false;
+  }
+
+  ShowSnapshot show;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.crossfader = 0.0f;
+  SignalFrameV1 fixedRaw{};
+  fixedRaw.rms = 0.07f;
+  fixedRaw.bass = 0.03f;
+  fixedRaw.mids = 0.025f;
+  fixedRaw.highs = 0.02f;
+
+  std::array<MusicalStateFrameV1, 5> states{};
+  // Quiet -> groove -> build -> peak -> release. Raw audio remains identical,
+  // so received differences can only come from the musical-state feature.
+  states[0].sourceSampleIndex = 48'000;
+  states[0].eventId = 1;
+  states[0].calm = 1.0f;
+  states[0].slowStateAge = 0.45f;
+
+  states[1].sourceSampleIndex = 84'000;
+  states[1].eventId = 2;
+  states[1].immediateEnergy = 0.38f;
+  states[1].grooveEnergy = 0.82f;
+  states[1].sustainedEnergy = 0.48f;
+  states[1].driving = 0.62f;
+  states[1].slowStateAge = 0.30f;
+
+  states[2].sourceSampleIndex = 120'000;
+  states[2].eventId = 3;
+  states[2].immediateEnergy = 0.55f;
+  states[2].grooveEnergy = 0.72f;
+  states[2].sustainedEnergy = 0.74f;
+  states[2].energyTrend = 0.78f;
+  states[2].building = 0.94f;
+  states[2].driving = 0.58f;
+  states[2].slowStateAge = 0.52f;
+
+  states[3].sourceSampleIndex = 156'000;
+  states[3].eventId = 4;
+  states[3].immediateEnergy = 0.96f;
+  states[3].onsetEnvelope = 0.92f;
+  states[3].accentEnvelope = 0.76f;
+  states[3].grooveEnergy = 0.91f;
+  states[3].sustainedEnergy = 0.96f;
+  states[3].driving = 0.86f;
+  states[3].peak = 0.98f;
+  states[3].slowStateAge = 0.12f;
+
+  states[4].sourceSampleIndex = 192'000;
+  states[4].eventId = 5;
+  states[4].immediateEnergy = 0.14f;
+  states[4].grooveEnergy = 0.26f;
+  states[4].sustainedEnergy = 0.47f;
+  states[4].energyTrend = -0.82f;
+  states[4].calm = 0.20f;
+  states[4].release = 0.96f;
+  states[4].slowStateAge = 0.35f;
+
+  for (unsigned index = 0; index < states.size(); ++index) {
+    auto& sample = trace.samples[index];
+    const double seconds = index * 0.75;
+    if (!render_and_hash(renderer, receiver, device, context, show, seconds,
+                         sample.hash, error, {1.0f, 60}, &sample.luma,
+                         nullptr, &fixedRaw, nullptr, &sample.pixels,
+                         &states[index], true)) {
+      receiver.ReleaseReceiver();
+      receiver.CloseDirectX11();
+      return false;
+    }
+  }
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  return true;
+}
+
+bool capture_legacy_recursive_musical_case(
+    const std::filesystem::path& shader_directory, ID3D11Device* device,
+    ID3D11DeviceContext* context, const MusicalStateFrameV1& state,
+    std::string_view name, std::uint64_t& fingerprint, std::string& error) {
+  const std::string sender_name =
+      "PrismForge.EffectProbe.LegacyRecursive." + std::string(name);
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name.c_str());
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open legacy Recursive feature-containment receiver";
+    return false;
+  }
+  ShowSnapshot show;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.crossfader = 0.0f;
+  SignalFrameV1 signal{};
+  signal.rms = 0.06f;
+  signal.bass = 0.018f;
+  signal.mids = 0.014f;
+  signal.highs = 0.011f;
+  MusicalStateFrameV1 musical = state;
+  for (unsigned step = 0; step < 4; ++step) {
+    musical.sourceSampleIndex += 4'800;
+    if (!renderer.Render(show, signal, musical, false, {1.0f, 60},
+                         step * 0.1, error)) {
+      receiver.ReleaseReceiver();
+      receiver.CloseDirectX11();
+      return false;
+    }
+  }
+  std::uint64_t grid_hash = 0;
+  const bool captured = render_and_hash(
+      renderer, receiver, device, context, show, 0.4, grid_hash, error,
+      {1.0f, 60}, nullptr, nullptr, &signal, &fingerprint, nullptr,
+      &musical, false);
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  return captured;
+}
+
+// Capture one feature-on frame from a fresh renderer after an identical
+// pre-roll frame. Paired callers use the same raw signal, event ID, sample
+// indices, and render times, changing exactly one MusicalStateFrame field.
+bool capture_musical_role_case(
+    const std::filesystem::path& shader_directory, ID3D11Device* device,
+    ID3D11DeviceContext* context, std::string_view name,
+    const MusicalStateFrameV1& pre_roll,
+    const MusicalStateFrameV1& final_state, ReactiveSample& sample,
+    std::string& error) {
+  const std::string sender_name =
+      "PrismForge.EffectProbe.MusicalRole." + std::string(name);
+  SpoutRender renderer(sender_name);
+  if (!renderer.Initialize(shader_directory, error)) return false;
+  spoutDX receiver;
+  receiver.SetReceiverName(sender_name.c_str());
+  if (!receiver.OpenDirectX11(device)) {
+    error = "Could not open Musical Recursive role receiver";
+    return false;
+  }
+
+  ShowSnapshot show;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  show.crossfader = 0.0f;
+  SignalFrameV1 fixed_raw{};
+  fixed_raw.rms = 0.07f;
+  fixed_raw.bass = 0.03f;
+  fixed_raw.mids = 0.025f;
+  fixed_raw.highs = 0.02f;
+  if (!renderer.Render(show, fixed_raw, pre_roll, true, {1.0f, 60},
+                       0.0, error)) {
+    receiver.ReleaseReceiver();
+    receiver.CloseDirectX11();
+    return false;
+  }
+
+  const bool captured = render_and_hash(
+      renderer, receiver, device, context, show, 1.0, sample.hash, error,
+      {1.0f, 60}, &sample.luma, nullptr, &fixed_raw, nullptr,
+      &sample.pixels, &final_state, true);
+  receiver.ReleaseReceiver();
+  receiver.CloseDirectX11();
+  return captured;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 2) {
-    std::cerr << "Usage: PrismForge.EffectProbe <assets/shaders directory>\n";
+  if (argc != 2 && (argc != 4 || std::string_view(argv[2]) != "--capture-dir")) {
+    std::cerr << "Usage: PrismForge.EffectProbe <assets/shaders directory> "
+                 "[--capture-dir <existing directory>]\n";
     return 64;
   }
-  SpoutRender renderer;
+  const std::filesystem::path capture_directory =
+      argc == 4 ? std::filesystem::path(argv[3]) : std::filesystem::path{};
+  if (!capture_directory.empty() &&
+      !std::filesystem::is_directory(capture_directory)) {
+    std::cerr << "Capture directory does not exist\n";
+    return 64;
+  }
+  SpoutRender renderer("PrismForge.EffectProbe");
   std::string error;
   const std::filesystem::path source_shaders(argv[1]);
   TemporaryShaderDirectory copied_shaders;
@@ -203,7 +660,7 @@ int main(int argc, char** argv) {
   ComPtr<ID3D11DeviceContext> receiver_context;
   receiver_device->GetImmediateContext(&receiver_context);
   spoutDX receiver;
-  receiver.SetReceiverName("PrismForge");
+  receiver.SetReceiverName("PrismForge.EffectProbe");
   if (!receiver.OpenDirectX11(receiver_device.Get())) {
     std::cerr << "Could not open Spout receiver\n";
     return 1;
@@ -223,6 +680,7 @@ int main(int argc, char** argv) {
   constexpr std::array<const char*, 4> names = {
       "Bloom", "Feedback", "Kaleidoscope", "Pixelate"};
   unsigned unchanged = 0;
+  std::uint64_t last_effect_hash = baseline;
   for (unsigned index = 0; index < names.size(); ++index) {
     show.decks[0].effects = {};
     if (index == 1) {
@@ -243,8 +701,243 @@ int main(int argc, char** argv) {
     std::cout << names[index] << '=' << changed
               << " differs=" << (changed != baseline) << '\n';
     if (changed == baseline) ++unchanged;
+    last_effect_hash = changed;
   }
   show.decks[0].effects = {};
+  struct SceneExpectation {
+    std::string_view id;
+    double minimumLuma;
+    std::uint8_t minimumPeak;
+  };
+  constexpr std::array<SceneExpectation, 6> new_scenes = {{{
+      "hex-vortex", 0.07, 80},
+      {"ferrofluid-reactor", 0.07, 80},
+      {"shardwell", 0.01, 70},
+      {"neon-orbs", 0.003, 70},
+      {"mirror-cathedral", 0.003, 70},
+      {"recursive-circuit", 0.003, 70},
+  }};
+  std::array<std::uint64_t, new_scenes.size()> scene_hashes{};
+  std::uint64_t previous_scene_hash = last_effect_hash;
+  for (unsigned index = 0; index < new_scenes.size(); ++index) {
+    show.decks[0].sceneId = std::string(new_scenes[index].id);
+    double scene_luma = 0.0;
+    std::uint8_t scene_maximum = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, 2.0,
+                         scene_hashes[index], error, {1.0f, 60},
+                         &scene_luma, &scene_maximum)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    std::cout << new_scenes[index].id << " hash=" << scene_hashes[index]
+              << " luma=" << scene_luma
+              << " max_rgb=" << static_cast<unsigned>(scene_maximum) << '\n';
+    if (scene_luma < new_scenes[index].minimumLuma ||
+        scene_maximum < new_scenes[index].minimumPeak ||
+        scene_hashes[index] == previous_scene_hash) {
+      std::cerr << "New scene did not produce a full, distinct received image\n";
+      return 3;
+    }
+    previous_scene_hash = scene_hashes[index];
+  }
+
+  // Grid samples can miss a small hit-lit joint, so the focused hero-scene
+  // check fingerprints every received RGB pixel. Hold shader time fixed and
+  // repeat the baseline first to rule out stale Spout copies or history.
+  show.decks[0].sceneId = "mirror-cathedral";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  SignalFrameV1 mirror_signal{};
+  mirror_signal.bass = 0.17f;
+  mirror_signal.mids = 0.21f;
+  mirror_signal.highs = 0.19f;
+  auto mirror_fingerprint = [&](const ShowSnapshot& scene,
+                                const SignalFrameV1& signal,
+                                std::uint64_t& fingerprint) {
+    std::uint64_t grid_hash = 0;
+    return render_and_hash(renderer, receiver, receiver_device.Get(),
+                           receiver_context.Get(), scene, 2.625, grid_hash,
+                           error, {1.0f, 60}, nullptr, nullptr, &signal,
+                           &fingerprint);
+  };
+  std::uint64_t mirror_baseline = 0;
+  std::uint64_t mirror_repeat = 0;
+  if (!mirror_fingerprint(show, mirror_signal, mirror_baseline) ||
+      !mirror_fingerprint(show, mirror_signal, mirror_repeat)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  if (mirror_baseline != mirror_repeat) {
+    std::cerr << "Mirror Cathedral fixed-input frame was not stable\n";
+    return 3;
+  }
+  constexpr std::array<const char*, 4> control_names = {
+      "symmetry", "depth", "aperture", "line_width"};
+  for (unsigned index = 0; index < control_names.size(); ++index) {
+    ShowSnapshot variant = show;
+    variant.decks[0].sceneParams[index] = 0.91f;
+    std::uint64_t fingerprint = 0;
+    if (!mirror_fingerprint(variant, mirror_signal, fingerprint)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = fingerprint != mirror_baseline;
+    std::cout << "mirror_control_" << control_names[index]
+              << "_differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+  constexpr std::array<const char*, 4> audio_names = {
+      "bass", "mids", "highs", "hit"};
+  for (unsigned index = 0; index < audio_names.size(); ++index) {
+    SignalFrameV1 variant = mirror_signal;
+    if (index == 0) variant.bass = 0.91f;
+    if (index == 1) variant.mids = 0.91f;
+    if (index == 2) variant.highs = 0.91f;
+    if (index == 3) variant.hit = true;
+    std::uint64_t fingerprint = 0;
+    if (!mirror_fingerprint(show, variant, fingerprint)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = fingerprint != mirror_baseline;
+    std::cout << "mirror_audio_" << audio_names[index]
+              << "_differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+
+  // Synthetic .91 band inputs are much hotter than the room-mic signal.
+  // Sample ordinary music-range values and require visible sampled geometry
+  // changes while keeping the average frame luminance bounded.
+  struct ReactiveExpectation {
+    std::string_view id;
+    unsigned minimumChangedSamples;
+  };
+  constexpr std::array<ReactiveExpectation, 3> reactive_scenes = {{{
+      "neon-orbs", 4}, {"shardwell", 8}, {"recursive-circuit", 8},
+  }};
+  SignalFrameV1 quiet_signal{};
+  quiet_signal.bass = 0.004f;
+  quiet_signal.mids = 0.004f;
+  quiet_signal.highs = 0.004f;
+  SignalFrameV1 music_signal{};
+  music_signal.bass = 0.06f;
+  music_signal.mids = 0.08f;
+  music_signal.highs = 0.05f;
+  for (const auto& expectation : reactive_scenes) {
+    show.decks[0].sceneId = std::string(expectation.id);
+    show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+    std::array<std::uint32_t, 18 * 32> quiet_pixels{};
+    std::array<std::uint32_t, 18 * 32> music_pixels{};
+    std::uint64_t quiet_hash = 0;
+    std::uint64_t music_hash = 0;
+    double quiet_luma = 0.0;
+    double music_luma = 0.0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, 3.125, quiet_hash,
+                         error, {1.0f, 60}, &quiet_luma, nullptr,
+                         &quiet_signal, nullptr, &quiet_pixels)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    if (!capture_directory.empty() &&
+        !capture_received_bmp(receiver, receiver_device.Get(),
+                              receiver_context.Get(),
+                              capture_directory /
+                                  (std::string(expectation.id) + "-quiet.bmp"))) {
+      std::cerr << "Could not capture quiet scene frame\n";
+      return 3;
+    }
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, 3.125, music_hash,
+                         error, {1.0f, 60}, &music_luma, nullptr,
+                         &music_signal, nullptr, &music_pixels)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    if (!capture_directory.empty() &&
+        !capture_received_bmp(receiver, receiver_device.Get(),
+                              receiver_context.Get(),
+                              capture_directory /
+                                  (std::string(expectation.id) + "-music.bmp"))) {
+      std::cerr << "Could not capture music-range scene frame\n";
+      return 3;
+    }
+    unsigned changed_samples = 0;
+    for (unsigned index = 0; index < quiet_pixels.size(); ++index) {
+      const auto quiet = quiet_pixels[index];
+      const auto music = music_pixels[index];
+      unsigned channel_delta = 0;
+      for (unsigned channel = 0; channel < 3; ++channel) {
+        const unsigned shift = channel * 8;
+        channel_delta += static_cast<unsigned>(std::abs(
+            static_cast<int>((quiet >> shift) & 0xffu) -
+            static_cast<int>((music >> shift) & 0xffu)));
+      }
+      if (channel_delta >= 12) ++changed_samples;
+    }
+    std::cout << expectation.id << " music_range_changed_samples="
+              << changed_samples << " quiet_luma=" << quiet_luma
+              << " music_luma=" << music_luma << '\n';
+    if (quiet_hash == music_hash ||
+        changed_samples < expectation.minimumChangedSamples ||
+        std::abs(music_luma - quiet_luma) > 0.08) {
+      std::cerr << "Mic-range scene reaction was absent or too global\n";
+      return 3;
+    }
+  }
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.5f, 0.5f, 0.5f};
+  SignalFrameV1 circuit_signal{};
+  circuit_signal.bass = 0.03f;
+  circuit_signal.mids = 0.03f;
+  circuit_signal.highs = 0.03f;
+  auto circuit_fingerprint = [&](const ShowSnapshot& scene,
+                                 const SignalFrameV1& signal,
+                                 std::uint64_t& fingerprint) {
+    std::uint64_t grid_hash = 0;
+    return render_and_hash(renderer, receiver, receiver_device.Get(),
+                           receiver_context.Get(), scene, 4.0, grid_hash,
+                           error, {1.0f, 60}, nullptr, nullptr, &signal,
+                           &fingerprint);
+  };
+  std::uint64_t circuit_baseline = 0;
+  if (!circuit_fingerprint(show, circuit_signal, circuit_baseline)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  constexpr std::array<const char*, 4> circuit_control_names = {
+      "branching", "flow", "depth", "charge"};
+  for (unsigned index = 0; index < circuit_control_names.size(); ++index) {
+    ShowSnapshot variant = show;
+    variant.decks[0].sceneParams[index] = 0.91f;
+    std::uint64_t fingerprint = 0;
+    if (!circuit_fingerprint(variant, circuit_signal, fingerprint)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = fingerprint != circuit_baseline;
+    std::cout << "circuit_control_" << circuit_control_names[index]
+              << "_differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+  for (unsigned index = 0; index < audio_names.size(); ++index) {
+    SignalFrameV1 variant = circuit_signal;
+    if (index == 0) variant.bass = 0.08f;
+    if (index == 1) variant.mids = 0.08f;
+    if (index == 2) variant.highs = 0.08f;
+    if (index == 3) variant.hit = true;
+    std::uint64_t fingerprint = 0;
+    if (!circuit_fingerprint(show, variant, fingerprint)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = fingerprint != circuit_baseline;
+    std::cout << "circuit_audio_" << audio_names[index]
+              << "_differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+  show.decks[0].sceneId = "prism-atrium";
+
   constexpr std::array<QualityTier, 4> tiers = {{
       {1.0f, 60}, {0.75f, 60}, {0.66f, 60}, {2.0f / 3.0f, 30}}};
   for (unsigned index = 0; index < tiers.size(); ++index) {
@@ -268,7 +961,7 @@ int main(int argc, char** argv) {
     if (!correct) return 3;
   }
   SignalFrameV1 silent{};
-  if (!renderer.Render(show, silent, tiers.back(), 13.01, error)) {
+  if (!renderer.Render(show, silent, {}, false, tiers.back(), 13.01, error)) {
     std::cerr << error << '\n';
     return 1;
   }
@@ -361,8 +1054,495 @@ int main(int argc, char** argv) {
     return 3;
   }
   std::cout << "valid_reload_recovered=true\n";
+
+  // Same-time A/B after a forward warmup: the reverse timestamp holds the
+  // macro smoothing state while the scene shader receives the baseline time.
+  // Test Motion last because its integrated scene clock intentionally persists.
+  constexpr std::array<std::pair<unsigned, const char*>, 4> macros = {{
+      {1, "Warp"}, {2, "Trails"}, {3, "Color"}, {0, "Motion"}}};
+  for (unsigned step = 0; step < macros.size(); ++step) {
+    show.masterEffects = {};
+    const double baseline_time = 31.0 + step * 10.0;
+    for (unsigned settle = 0; settle < 3; ++settle) {
+      std::uint64_t ignored = 0;
+      if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                           receiver_context.Get(), show,
+                           baseline_time - 0.75 + settle * 0.25,
+                           ignored, error)) {
+        std::cerr << error << '\n';
+        return 3;
+      }
+    }
+    std::uint64_t neutral_hash = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, baseline_time,
+                         neutral_hash, error)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    show.masterEffects[macros[step].first] = 1.0f;
+    std::uint64_t warm_hash = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, baseline_time + 0.25,
+                         warm_hash, error)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    std::uint64_t macro_hash = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, baseline_time,
+                         macro_hash, error)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+    const bool differs = macro_hash != neutral_hash;
+    std::cout << "macro_" << macros[step].second << "=" << macro_hash
+              << " differs=" << differs << '\n';
+    if (!differs) return 3;
+  }
+
+  // Full deck Feedback plus master Trails must not replace every current
+  // pixel with fading history. Exercise the combination through 60 rendered
+  // frames (20 probe calls, three publications each) and retain visible light.
+  show.masterEffects = {};
+  show.decks[0].effects = {};
+  show.decks[0].sceneId = "ferrofluid-reactor";
+  double neutral_luma = 0.0;
+  std::uint64_t neutral_hash = 0;
+  if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                       receiver_context.Get(), show, 70.0, neutral_hash,
+                       error, {1.0f, 60}, &neutral_luma)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  show.decks[0].effects[1] = 1.0f;
+  show.masterEffects[2] = 1.0f;
+  double combined_luma = 0.0;
+  for (unsigned frame = 0; frame < 20; ++frame) {
+    std::uint64_t combined_hash = 0;
+    if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                         receiver_context.Get(), show, 71.0 + frame / 60.0,
+                         combined_hash, error, {1.0f, 60},
+                         &combined_luma)) {
+      std::cerr << error << '\n';
+      return 3;
+    }
+  }
+  std::cout << "feedback_trails_luma=" << combined_luma
+            << " neutral_luma=" << neutral_luma << '\n';
+  if (!(combined_luma > neutral_luma * 0.10)) return 3;
+
+  // Exercise the opted-in effect through a scene switch and two internal
+  // resolutions. The output texture is checked by render_and_hash on every
+  // sample; this catches invalid history sampling without assuming that a
+  // scene switch itself clears the deliberately persistent feedback trail.
+  show = ShowSnapshot{};
+  show.crossfader = 0.0f;
+  show.decks[0].sceneId = "recursive-circuit";
+  show.decks[0].sceneParams = {0.5f, 0.8f, 0.5f, 0.5f};
+  show.decks[0].effects[1] = 0.8f;
+  SignalFrameV1 echo_signal{};
+  echo_signal.rms = 0.06f;
+  echo_signal.bass = 0.018f;
+  echo_signal.mids = 0.014f;
+  echo_signal.highs = 0.011f;
+  constexpr QualityTier reduced_tier{0.75f, 60};
+  double echo_reduced_luma = 0.0;
+  std::uint64_t echo_reduced_hash = 0;
+  if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                       receiver_context.Get(), show, 72.0, echo_reduced_hash,
+                       error, reduced_tier, &echo_reduced_luma, nullptr,
+                       &echo_signal)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  if (renderer.InternalWidth() != 1440 ||
+      renderer.InternalHeight() != 810) return 3;
+  show.decks[0].sceneId = "prism-atrium";
+  std::uint64_t switched_hash = 0;
+  if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                       receiver_context.Get(), show, 72.2, switched_hash,
+                       error, reduced_tier, nullptr, nullptr,
+                       &echo_signal)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  show.decks[0].sceneId = "recursive-circuit";
+  double echo_full_luma = 0.0;
+  std::uint64_t echo_full_hash = 0;
+  if (!render_and_hash(renderer, receiver, receiver_device.Get(),
+                       receiver_context.Get(), show, 72.4, echo_full_hash,
+                       error, {1.0f, 60}, &echo_full_luma, nullptr,
+                       &echo_signal)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  const bool echo_switch_resize_ok =
+      echo_reduced_hash != switched_hash &&
+      switched_hash != echo_full_hash &&
+      std::isfinite(echo_reduced_luma) &&
+      std::isfinite(echo_full_luma) &&
+      echo_reduced_luma > 0.0 && echo_reduced_luma < 0.5 &&
+      echo_full_luma > 0.0 && echo_full_luma < 0.5 &&
+      renderer.InternalWidth() == SpoutRender::kOutputWidth &&
+      renderer.InternalHeight() == SpoutRender::kOutputHeight;
+  std::cout << "flow_echo_switch_resize_ok=" << echo_switch_resize_ok
+            << " reduced_luma=" << echo_reduced_luma
+            << " full_luma=" << echo_full_luma << '\n';
+  if (!echo_switch_resize_ok) return 3;
+
   receiver.ReleaseReceiver();
   receiver.CloseDirectX11();
   renderer.Shutdown();
+
+  // Prism Atrium ignores the Flow scene parameter. With Feedback active,
+  // toggling that parameter must leave an otherwise identical matched
+  // timeline pixel-for-pixel unchanged outside Recursive Circuit.
+  std::uint64_t non_recursive_flow_off = 0;
+  std::uint64_t non_recursive_flow_on = 0;
+  if (!capture_non_recursive_flow_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), 0.0f, non_recursive_flow_off, error) ||
+      !capture_non_recursive_flow_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), 1.0f, non_recursive_flow_on, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  std::cout << "flow_echo_non_recursive_unchanged="
+            << (non_recursive_flow_off == non_recursive_flow_on) << '\n';
+  if (non_recursive_flow_off != non_recursive_flow_on) return 3;
+
+  // The new feature flag must be a strict Recursive Circuit boundary. Match
+  // fresh Prism Atrium feedback timelines with a deliberately strong musical
+  // frame; enabling the feature may not change a single received pixel.
+  std::uint64_t non_recursive_musical_off = 0;
+  std::uint64_t non_recursive_musical_on = 0;
+  if (!capture_non_recursive_flow_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), 0.5f, non_recursive_musical_off, error,
+          false) ||
+      !capture_non_recursive_flow_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), 0.5f, non_recursive_musical_on, error,
+          true)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  std::cout << "musical_flag_non_recursive_unchanged="
+            << (non_recursive_musical_off == non_recursive_musical_on)
+            << '\n';
+  if (non_recursive_musical_off != non_recursive_musical_on) return 3;
+
+  // Rollback containment is bidirectional: with the feature disabled,
+  // Recursive Circuit must ignore MusicalStateFrame completely and preserve
+  // the established raw SignalFrame/ReactiveMotion path.
+  MusicalStateFrameV1 legacy_quiet{};
+  legacy_quiet.sourceSampleIndex = 48'000;
+  legacy_quiet.eventId = 10;
+  legacy_quiet.calm = 1.0f;
+  MusicalStateFrameV1 legacy_peak{};
+  legacy_peak.sourceSampleIndex = 48'000;
+  legacy_peak.eventId = 11;
+  legacy_peak.immediateEnergy = 1.0f;
+  legacy_peak.onsetEnvelope = 1.0f;
+  legacy_peak.accentEnvelope = 1.0f;
+  legacy_peak.grooveEnergy = 1.0f;
+  legacy_peak.sustainedEnergy = 1.0f;
+  legacy_peak.building = 1.0f;
+  legacy_peak.driving = 1.0f;
+  legacy_peak.peak = 1.0f;
+  std::uint64_t legacy_quiet_hash = 0;
+  std::uint64_t legacy_peak_hash = 0;
+  if (!capture_legacy_recursive_musical_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), legacy_quiet, "Quiet",
+          legacy_quiet_hash, error) ||
+      !capture_legacy_recursive_musical_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), legacy_peak, "Peak",
+          legacy_peak_hash, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  std::cout << "legacy_recursive_ignores_musical_state="
+            << (legacy_quiet_hash == legacy_peak_hash) << '\n';
+  if (legacy_quiet_hash != legacy_peak_hash) return 3;
+
+  // Feature-on coverage holds raw input fixed and supplies a deterministic
+  // musical phrase. Every adjacent phase must visibly alter sampled geometry,
+  // while all five frames remain within the established luminance bound.
+  MusicalSceneTrace musical_trace;
+  if (!capture_musical_scene_trace(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), musical_trace, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  constexpr std::array<const char*, 5> musical_phase_names = {
+      "quiet", "groove", "build", "peak", "release"};
+  bool musical_bounded = true;
+  bool musical_distinct = true;
+  for (unsigned index = 0; index < musical_trace.samples.size(); ++index) {
+    const auto& sample = musical_trace.samples[index];
+    musical_bounded &= std::isfinite(sample.luma) &&
+                       sample.luma > 0.0 && sample.luma < 0.5;
+    std::cout << "musical_recursive_" << musical_phase_names[index]
+              << "_hash=" << sample.hash << " luma=" << sample.luma;
+    if (index > 0) {
+      const unsigned changed = changed_grid_samples(
+          musical_trace.samples[index - 1], sample, 8);
+      std::cout << " changed_from_previous=" << changed;
+      musical_distinct &= sample.hash != musical_trace.samples[index - 1].hash &&
+                          changed >= 8;
+    }
+    std::cout << '\n';
+  }
+  std::cout << "musical_recursive_timeline_distinct=" << musical_distinct
+            << " bounded=" << musical_bounded << '\n';
+  if (!musical_distinct || !musical_bounded) return 3;
+
+  // Isolate the renderer adapter's individual musical roles. Every pair uses
+  // fresh renderers with identical pre-roll, raw audio, event ID, sample
+  // indices, and timestamps; only the named final MusicalState field differs.
+  constexpr std::uint64_t kRoleEventId = 0x524F4C4554455354ULL;
+  MusicalStateFrameV1 role_pre_roll{};
+  role_pre_roll.sourceSampleIndex = 48'000;
+  role_pre_roll.eventId = kRoleEventId;
+  role_pre_roll.grooveEnergy = 0.45f;
+  role_pre_roll.sustainedEnergy = 0.45f;
+  role_pre_roll.driving = 0.20f;
+  role_pre_roll.slowStateAge = 0.35f;
+  MusicalStateFrameV1 role_base = role_pre_roll;
+  role_base.sourceSampleIndex = 96'000;
+
+  MusicalStateFrameV1 density_state = role_base;
+  density_state.immediateEnergy = 1.0f;
+  ReactiveSample density_base_sample;
+  ReactiveSample density_high_sample;
+  if (!capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "DensityBase", role_pre_roll, role_base,
+          density_base_sample, error) ||
+      !capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "DensityImmediate", role_pre_roll,
+          density_state, density_high_sample, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+
+  // Positive trend is intentionally used here because it contributes only to
+  // topology in RecursiveSceneAdapter; unlike `building`, it does not also
+  // change density, flow velocity, palette offset, or palette easing speed.
+  MusicalStateFrameV1 topology_state = role_base;
+  topology_state.energyTrend = 1.0f;
+  ReactiveSample topology_base_sample;
+  ReactiveSample topology_high_sample;
+  if (!capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "TopologyBase", role_pre_roll, role_base,
+          topology_base_sample, error) ||
+      !capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "TopologyTrend", role_pre_roll,
+          topology_state, topology_high_sample, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+
+  MusicalStateFrameV1 impact_state = role_base;
+  impact_state.onsetEnvelope = 1.0f;
+  ReactiveSample impact_base_sample;
+  ReactiveSample impact_high_sample;
+  if (!capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "ImpactBase", role_pre_roll, role_base,
+          impact_base_sample, error) ||
+      !capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "ImpactOnset", role_pre_roll,
+          impact_state, impact_high_sample, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+
+  // Both release cases receive the same prior impact. At the matched final
+  // time the onset is gone; only the release weight remains in the variant.
+  MusicalStateFrameV1 release_pre_roll = role_pre_roll;
+  release_pre_roll.onsetEnvelope = 1.0f;
+  release_pre_roll.accentEnvelope = 0.65f;
+  MusicalStateFrameV1 release_base = role_base;
+  MusicalStateFrameV1 release_state = role_base;
+  release_state.release = 1.0f;
+  ReactiveSample release_base_sample;
+  ReactiveSample release_tail_sample;
+  if (!capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "ReleaseBase", release_pre_roll,
+          release_base, release_base_sample, error) ||
+      !capture_musical_role_case(
+          copied_shaders.directory, receiver_device.Get(),
+          receiver_context.Get(), "ReleaseTail", release_pre_roll,
+          release_state, release_tail_sample, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+
+  const auto role_is_bounded = [](const ReactiveSample& sample) {
+    return std::isfinite(sample.luma) && sample.luma > 0.0 &&
+           sample.luma < 0.5;
+  };
+  const auto validate_role = [&](std::string_view name,
+                                 const ReactiveSample& baseline_sample,
+                                 const ReactiveSample& variant_sample,
+                                 unsigned minimum_changed,
+                                 bool require_brighter) {
+    const unsigned changed = changed_grid_samples(
+        baseline_sample, variant_sample, 8);
+    const double luma_delta = variant_sample.luma - baseline_sample.luma;
+    const bool distinct = baseline_sample.hash != variant_sample.hash &&
+                          changed >= minimum_changed;
+    const bool bounded = role_is_bounded(baseline_sample) &&
+                         role_is_bounded(variant_sample) &&
+                         std::abs(luma_delta) < 0.10;
+    const bool direction_ok = !require_brighter || luma_delta > 0.0001;
+    std::cout << "musical_role_" << name
+              << "_changed_samples=" << changed
+              << " luma_delta=" << luma_delta
+              << " distinct=" << distinct
+              << " bounded=" << bounded
+              << " direction_ok=" << direction_ok << '\n';
+    return distinct && bounded && direction_ok;
+  };
+  const bool density_role_ok = validate_role(
+      "density_immediate", density_base_sample, density_high_sample, 10, true);
+  const bool topology_role_ok = validate_role(
+      "topology_trend", topology_base_sample, topology_high_sample, 4, false);
+  const bool impact_role_ok = validate_role(
+      "impact_onset", impact_base_sample, impact_high_sample, 8, false);
+  const bool release_role_ok = validate_role(
+      "release_persistence", release_base_sample, release_tail_sample, 8, true);
+  if (!density_role_ok || !topology_role_ok || !impact_role_ok ||
+      !release_role_ok) return 3;
+
+  // Compare matching timelines rather than a single frame before/after a
+  // beat. This distinguishes audio-driven geometry from ordinary time motion
+  // and checks that a real onset is still visible one tenth of a second later.
+  ReactiveTrace quiet;
+  ReactiveTrace quiet_onset;
+  ReactiveTrace music;
+  ReactiveTrace music_onset;
+  if (!capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "Quiet", false, false, quiet, error) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "QuietOnset", false, true, quiet_onset, error) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "Music", true, false, music, error) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "MusicOnset", true, true, music_onset, error)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  const unsigned music_response = changed_grid_samples(
+      quiet.samples[4], music.samples[4]);
+  const unsigned sustained_pulse = changed_grid_samples(
+      quiet.samples[6], quiet_onset.samples[6]);
+  const unsigned palette_phrase = changed_grid_samples(
+      music.samples[38], music_onset.samples[38]);
+  std::cout << "reactive_music_changed_samples=" << music_response
+            << " pulse_100ms_changed_samples=" << sustained_pulse
+            << " phrase_800ms_changed_samples=" << palette_phrase
+            << " quiet_music_luma_delta="
+            << std::abs(quiet.samples[4].luma - music.samples[4].luma)
+            << " phrase_luma_delta="
+            << std::abs(music.samples[38].luma - music_onset.samples[38].luma)
+            << '\n';
+  if (music_response < 12 || sustained_pulse < 8 || palette_phrase < 24 ||
+      std::abs(quiet.samples[4].luma - music.samples[4].luma) > 0.10 ||
+      std::abs(music.samples[38].luma - music_onset.samples[38].luma) > 0.10) {
+    std::cerr << "Reactive Circuit timeline lacked bounded music, onset, or "
+                 "phrase response\n";
+    return 3;
+  }
+  // Pulse decay is independently asserted in ReactiveMotion's scalar tests.
+  // Here the received image must keep changing after the onset while its
+  // average luminance stays bounded; integrated flow legitimately preserves
+  // a small phase difference after the pulse itself has decayed.
+  const unsigned onset_after_decay = changed_grid_samples(
+      quiet.samples[11], quiet_onset.samples[11]);
+  const double early_pulse_luma_delta = std::abs(
+      quiet.samples[6].luma - quiet_onset.samples[6].luma);
+  const double late_pulse_luma_delta = std::abs(
+      quiet.samples[11].luma - quiet_onset.samples[11].luma);
+  std::cout << "pulse_600ms_changed_samples=" << onset_after_decay
+            << " pulse_100ms_luma_delta=" << early_pulse_luma_delta
+            << " pulse_600ms_luma_delta=" << late_pulse_luma_delta
+            << '\n';
+  if (early_pulse_luma_delta < 0.00015 ||
+      early_pulse_luma_delta > 0.10 ||
+      late_pulse_luma_delta > early_pulse_luma_delta * 0.75)
+    return 3;
+
+  // Compare identical audio timelines with deck Feedback enabled. The
+  // earlier traces are the Feedback-off controls; this set exercises quiet,
+  // sustained music and an onset while Flow Echo advects prior deck frames.
+  // Require received-pixel changes without a runaway full-frame luma jump.
+  ReactiveTrace echo_quiet;
+  ReactiveTrace echo_music;
+  ReactiveTrace echo_music_onset;
+  if (!capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "FlowEchoQuiet", false, false, echo_quiet,
+                              error, 0.8f) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "FlowEchoMusic", true, false, echo_music,
+                              error, 0.8f) ||
+      !capture_reactive_trace(copied_shaders.directory, receiver_device.Get(),
+                              receiver_context.Get(), capture_directory,
+                              "FlowEchoMusicOnset", true, true,
+                              echo_music_onset, error, 0.8f)) {
+    std::cerr << error << '\n';
+    return 3;
+  }
+  const unsigned quiet_feedback_change = changed_grid_samples(
+      quiet.samples[4], echo_quiet.samples[4]);
+  const unsigned music_feedback_change = changed_grid_samples(
+      music.samples[4], echo_music.samples[4]);
+  const unsigned onset_feedback_change = changed_grid_samples(
+      music_onset.samples[31], echo_music_onset.samples[31]);
+  const unsigned echo_music_response = changed_grid_samples(
+      echo_quiet.samples[4], echo_music.samples[4]);
+  const unsigned echo_onset_response = changed_grid_samples(
+      echo_music.samples[31], echo_music_onset.samples[31]);
+  const unsigned echo_temporal_change = changed_grid_samples(
+      echo_music.samples[4], echo_music.samples[29]);
+  const std::array<const ReactiveSample*, 6> echo_checkpoints = {{
+      &echo_quiet.samples[4], &echo_music.samples[4],
+      &echo_music.samples[29], &echo_music.samples[31],
+      &echo_music_onset.samples[31], &echo_music_onset.samples[38]}};
+  bool bounded_luminance = true;
+  for (const auto* sample : echo_checkpoints) {
+    bounded_luminance &= std::isfinite(sample->luma) &&
+                         sample->luma > 0.0 && sample->luma < 0.5;
+  }
+  std::cout << "flow_echo_feedback_changes=" << quiet_feedback_change << ','
+            << music_feedback_change << ',' << onset_feedback_change
+            << " music_response=" << echo_music_response
+            << " onset_response=" << echo_onset_response
+            << " temporal_change=" << echo_temporal_change
+            << " bounded_luminance=" << bounded_luminance << '\n';
+  if (quiet_feedback_change < 4 || music_feedback_change < 4 ||
+      onset_feedback_change < 4 || echo_music_response < 12 ||
+      echo_onset_response < 8 || echo_temporal_change < 12 ||
+      !bounded_luminance) {
+    std::cerr << "Flow Echo timeline lacked bounded music or onset motion\n";
+    return 3;
+  }
   return unchanged == 0 ? 0 : 2;
 }

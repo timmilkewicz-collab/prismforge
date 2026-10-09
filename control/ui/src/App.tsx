@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { sendCommand, subscribeToHost } from './bridge'
+import { requestShutdownAll, sendCommand, subscribeToHost } from './bridge'
 import { initialViewState, viewReducer } from './state'
 import { emptyDeck } from './types'
 import type {
@@ -13,6 +13,12 @@ import type {
 
 const clamp = (value: number, minimum = 0, maximum = 1) => Math.min(maximum, Math.max(minimum, value))
 const percentage = (value: number) => `${Math.round(clamp(value) * 100)}%`
+const masterMacros = [
+  { name: 'Motion', hint: 'Drive the scene' },
+  { name: 'Warp', hint: 'Bend the image' },
+  { name: 'Trails', hint: 'Build momentum' },
+  { name: 'Color', hint: 'Push the palette' },
+] as const
 
 function useThrottledCommand(intervalMs = 32) {
   const pending = useRef(new Map<string, { payload: Record<string, unknown>; timer: number }>())
@@ -25,7 +31,7 @@ function useThrottledCommand(intervalMs = 32) {
     [],
   )
 
-  return useCallback(
+  const send = useCallback(
     (key: string, payload: Record<string, unknown>) => {
       const active = pending.current.get(key)
       if (active) {
@@ -45,6 +51,16 @@ function useThrottledCommand(intervalMs = 32) {
     },
     [intervalMs],
   )
+
+  const cancelPrefix = useCallback((prefix: string) => {
+    for (const [key, entry] of pending.current) {
+      if (!key.startsWith(prefix)) continue
+      window.clearTimeout(entry.timer)
+      pending.current.delete(key)
+    }
+  }, [])
+
+  return { send, cancelPrefix }
 }
 
 interface DeckPanelProps {
@@ -53,12 +69,14 @@ interface DeckPanelProps {
   scenes: SceneDescriptor[]
   online: boolean
   onScene: (deck: DeckId, sceneId: string) => void
+  onSceneParameter: (deck: DeckId, sceneId: string, index: number, amount: number) => void
   onEffect: (deck: DeckId, index: number, amount: number) => void
 }
 
-function DeckPanel({ deckId, deck, scenes, online, onScene, onEffect }: DeckPanelProps) {
+function DeckPanel({ deckId, deck, scenes, online, onScene, onSceneParameter, onEffect }: DeckPanelProps) {
   const accent = deckId === 'A' ? 'cyan' : 'magenta'
   const activeScene = scenes.find((scene) => scene.id === deck.sceneId)
+  const featuredScene = scenes.find((scene) => scene.id === 'mirror-cathedral')
 
   return (
     <section className={`panel deck-panel deck-${accent}`} aria-label={`Deck ${deckId}`}>
@@ -75,6 +93,15 @@ function DeckPanel({ deckId, deck, scenes, online, onScene, onEffect }: DeckPane
         <strong>{activeScene?.name ?? (online ? 'No scene selected' : 'Engine offline')}</strong>
         <small>{activeScene?.category ?? 'Awaiting scene catalog'}</small>
       </div>
+
+      {featuredScene && deck.sceneId !== featuredScene.id && (
+        <button className="featured-scene" disabled={!online}
+          onClick={() => onScene(deckId, featuredScene.id)}>
+          <span>FEATURED · PERFORMANCE SCENE</span>
+          <b>{featuredScene.name}</b>
+          <small>Play symmetry, depth, aperture and line width</small>
+        </button>
+      )}
 
       <div className="section-title">
         <span>Scene browser</span>
@@ -100,6 +127,35 @@ function DeckPanel({ deckId, deck, scenes, online, onScene, onEffect }: DeckPane
           ))
         )}
       </div>
+
+      {activeScene?.parameters && activeScene.parameters.length > 0 && (
+        <>
+          <div className="section-title scene-controls-title">
+            <span>Shape this scene</span>
+            <span className="scene-controls-live">LIVE</span>
+          </div>
+          <div className="scene-control-grid">
+            {activeScene.parameters.map((parameter) => (
+              <label className="parameter scene-control" key={parameter.id}>
+                <span>
+                  <b>{parameter.name}</b>
+                  <output>{percentage(deck.sceneParams[parameter.index] ?? parameter.default)}</output>
+                </span>
+                <input
+                  type="range"
+                  min={parameter.min}
+                  max={parameter.max}
+                  step="0.005"
+                  value={clamp(deck.sceneParams[parameter.index] ?? parameter.default)}
+                  disabled={!online}
+                  onChange={(event) => onSceneParameter(
+                    deckId, activeScene.id, parameter.index, Number(event.currentTarget.value))}
+                />
+              </label>
+            ))}
+          </div>
+        </>
+      )}
 
       <div className="section-title effects-title">
         <span>Effect rack</span>
@@ -151,14 +207,19 @@ function Meter({ label, value, peak = false, danger = false }: { label: string; 
 
 interface MasterPanelProps {
   online: boolean
+  masterEffectsAvailable: boolean
   crossfader: number
+  masterEffects: number[]
   blackout: boolean
   panicDim: boolean
   onCrossfader: (value: number) => void
+  onMasterEffect: (index: number, amount: number) => void
+  onMasterReset: () => void
   onSafety: (control: 'blackout' | 'panicDim', enabled: boolean) => void
 }
 
-function MasterPanel({ online, crossfader, blackout, panicDim, onCrossfader, onSafety }: MasterPanelProps) {
+function MasterPanel({ online, masterEffectsAvailable, crossfader, masterEffects, blackout, panicDim, onCrossfader,
+  onMasterEffect, onMasterReset, onSafety }: MasterPanelProps) {
   return (
     <section className="panel master-panel" aria-label="Master mixer">
       <div className="panel-heading centered">
@@ -195,6 +256,27 @@ function MasterPanel({ online, crossfader, blackout, panicDim, onCrossfader, onS
         <div className="crossfader-values">
           <span>{Math.round((1 - crossfader) * 100)}%</span>
           <span>{Math.round(crossfader * 100)}%</span>
+        </div>
+      </div>
+
+      <div className="performance-macros">
+        <div className="macro-heading">
+          <span>Performance macros</span>
+          <button type="button" disabled={!online || !masterEffectsAvailable || masterEffects.every((amount) => amount === 0)}
+            onClick={onMasterReset} title="Return all performance macros to neutral">RESET</button>
+        </div>
+        {!masterEffectsAvailable && <small className="macro-unavailable">Requires matching Engine</small>}
+        <div className="macro-list">
+          {masterMacros.map((macro, index) => (
+            <label className="macro-row" key={macro.name}>
+              <span className="macro-label"><b>{macro.name}</b><small>{macro.hint}</small></span>
+              <input type="range" min="0" max="1" step="0.005" value={clamp(masterEffects[index] ?? 0)}
+                disabled={!online || !masterEffectsAvailable}
+                onChange={(event) => onMasterEffect(index, Number(event.currentTarget.value))}
+                aria-label={`${macro.name} performance macro`} />
+              <output>{percentage(masterEffects[index] ?? 0)}</output>
+            </label>
+          ))}
         </div>
       </div>
 
@@ -285,7 +367,7 @@ export default function App() {
   const [view, dispatch] = useReducer(viewReducer, undefined, initialViewState)
   const [showName, setShowName] = useState('')
   const [showFeedback, setShowFeedback] = useState('')
-  const sendThrottled = useThrottledCommand()
+  const { send: sendThrottled, cancelPrefix: cancelThrottledPrefix } = useThrottledCommand()
   const online = view.connection === 'connected'
 
   useEffect(() => subscribeToHost((message) => {
@@ -303,19 +385,36 @@ export default function App() {
   }, [view.notice])
 
   const onScene = useCallback((deck: DeckId, sceneId: string) => {
+    cancelThrottledPrefix(`scene-${deck}-`)
     dispatch({ type: 'optimistic-scene', deck, sceneId })
     sendCommand({ action: 'setScene', deck, sceneId })
-  }, [])
+  }, [cancelThrottledPrefix])
 
   const onEffect = useCallback((deck: DeckId, index: number, amount: number) => {
     dispatch({ type: 'optimistic-effect', deck, index, amount })
     sendThrottled(`effect-${deck}-${index}`, { action: 'setEffect', deck, effectIndex: index, amount })
   }, [sendThrottled])
 
+  const onSceneParameter = useCallback((deck: DeckId, sceneId: string, index: number, amount: number) => {
+    dispatch({ type: 'optimistic-scene-parameter', deck, sceneId, index, amount })
+    sendThrottled(`scene-${deck}-${sceneId}-${index}`,
+      { action: 'setSceneParameter', deck, sceneId, index, amount })
+  }, [sendThrottled])
+
   const onCrossfader = useCallback((value: number) => {
     dispatch({ type: 'optimistic-crossfader', value })
     sendThrottled('crossfader', { action: 'setCrossfader', value })
   }, [sendThrottled])
+
+  const onMasterEffect = useCallback((index: number, amount: number) => {
+    if (!online || !view.masterEffectsAvailable) return
+    dispatch({ type: 'optimistic-master-effect', index, amount })
+    sendThrottled(`master-${index}`, { action: 'setMasterEffect', index, amount })
+  }, [online, view.masterEffectsAvailable, sendThrottled])
+
+  const onMasterReset = useCallback(() => {
+    for (let index = 0; index < masterMacros.length; index += 1) onMasterEffect(index, 0)
+  }, [onMasterEffect])
 
   const onSafety = useCallback((control: 'blackout' | 'panicDim', enabled: boolean) => {
     dispatch({ type: 'optimistic-safety', control, enabled })
@@ -350,11 +449,15 @@ export default function App() {
             <i />
             <span>{view.connection === 'connected' ? 'Engine online' : view.connectionMessage}</span>
           </div>
-          <div className="metric"><span>FPS</span><b>{view.engine.performance.fps.toFixed(1)}</b></div>
-          <div className="metric"><span>Output</span><b>{outputResolution}</b></div>
-          <div className={`metric spout ${view.engine.output.spout.ready ? 'ready' : ''}`}>
-            <span>Spout</span><b>{view.engine.output.spout.ready ? 'Ready' : 'Offline'}</b>
+          <div className="metric"><span>FPS</span><b>{online ? view.engine.performance.fps.toFixed(1) : '—'}</b></div>
+          <div className="metric"><span>Output</span><b>{online ? outputResolution : 'Unknown'}</b></div>
+          <div className={`metric spout ${online && view.engine.output.spout.ready ? 'ready' : ''}`}>
+            <span>Spout</span><b>{online ? (view.engine.output.spout.ready ? 'Ready' : 'Offline') : 'Unknown'}</b>
           </div>
+          <button type="button" className="quit-all-button" onClick={() => requestShutdownAll()}
+            title="Stop the engine and close Control">
+            Quit all
+          </button>
         </div>
       </header>
 
@@ -363,18 +466,20 @@ export default function App() {
       <main>
         <div className="mixer-grid">
           <DeckPanel deckId="A" deck={view.engine.decks.A} scenes={view.engine.sceneCatalog} online={online}
-            onScene={onScene} onEffect={onEffect} />
-          <MasterPanel online={online} crossfader={view.engine.crossfader} blackout={view.engine.blackout}
-            panicDim={view.engine.panicDim} onCrossfader={onCrossfader} onSafety={onSafety} />
+            onScene={onScene} onSceneParameter={onSceneParameter} onEffect={onEffect} />
+          <MasterPanel online={online} masterEffectsAvailable={view.masterEffectsAvailable}
+            crossfader={view.engine.crossfader} masterEffects={view.engine.masterEffects}
+            blackout={view.engine.blackout} panicDim={view.engine.panicDim} onCrossfader={onCrossfader}
+            onMasterEffect={onMasterEffect} onMasterReset={onMasterReset} onSafety={onSafety} />
           <DeckPanel deckId="B" deck={view.engine.decks.B} scenes={view.engine.sceneCatalog} online={online}
-            onScene={onScene} onEffect={onEffect} />
+            onScene={onScene} onSceneParameter={onSceneParameter} onEffect={onEffect} />
         </div>
 
         <div className="lower-grid">
           <section className="panel audio-panel">
             <div className="panel-heading compact-heading">
               <div><span className="eyebrow">Signal bus</span><h2>Audio input</h2></div>
-              <span className={`clip-light ${view.engine.audio.clipping ? 'active' : ''}`}>CLIP</span>
+              <span className={`clip-light ${online && view.engine.audio.clipping ? 'active' : ''}`}>CLIP</span>
             </div>
             <label className="source-select">
               <span>Source</span>
@@ -389,12 +494,24 @@ export default function App() {
                 ))}
               </select>
             </label>
+            <div className={`audio-readiness ${online && view.engine.audio.connected && view.engine.audio.receiving ?
+              (view.engine.audio.peak > 0.003 ? 'active' : 'silent') : 'offline'}`}>
+              {!online
+                ? 'Engine link unavailable · audio status unknown'
+                : !view.engine.audio.connected
+                ? 'Capture offline · visuals are not reacting to audio'
+                : !view.engine.audio.receiving
+                  ? 'Capture open · waiting for audio blocks'
+                  : view.engine.audio.peak > 0.003
+                    ? 'Signal detected'
+                    : 'Capture running · no level detected'}
+            </div>
             <div className="meters">
-              <Meter label="RMS" value={view.engine.audio.rms} />
-              <Meter label="PEAK" value={view.engine.audio.peak} peak danger={view.engine.audio.clipping} />
-              <Meter label="LOW" value={view.engine.audio.low} />
-              <Meter label="MID" value={view.engine.audio.mid} />
-              <Meter label="HIGH" value={view.engine.audio.high} />
+              <Meter label="RMS" value={online ? view.engine.audio.rms : 0} />
+              <Meter label="PEAK" value={online ? view.engine.audio.peak : 0} peak danger={online && view.engine.audio.clipping} />
+              <Meter label="LOW" value={online ? view.engine.audio.low : 0} />
+              <Meter label="MID" value={online ? view.engine.audio.mid : 0} />
+              <Meter label="HIGH" value={online ? view.engine.audio.high : 0} />
             </div>
           </section>
 
@@ -458,7 +575,7 @@ export default function App() {
       <footer>
         <span>LOCAL CONTROL</span>
         <span>{view.engine.output.spout.senderName || 'PrismForge'}</span>
-        <span>{view.engine.performance.frameTimeMs.toFixed(1)} ms/frame</span>
+        <span>{online ? `${view.engine.performance.frameTimeMs.toFixed(1)} ms/frame` : 'Frame time unknown'}</span>
       </footer>
 
       {view.engine.blackout && (

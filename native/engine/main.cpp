@@ -3,9 +3,11 @@
 #include "OscBridge.h"
 #include "PipeServer.h"
 #include "ShowStore.h"
+#include "SignalTelemetry.h"
 #include "SpoutRender.h"
 
 #include "PrismForge/QualityGovernor.h"
+#include "PrismForge/MusicalStateEngine.h"
 #include "PrismForge/ShowState.h"
 #include "PrismForge/SignalAnalyzer.h"
 
@@ -56,8 +58,21 @@ Json ReadSceneCatalog(const std::filesystem::path& executableDirectory) {
     const Json manifest = Json::parse(stream);
     Json catalog = Json::array();
     for (const auto& scene : manifest.at("scenes")) {
+      const auto& parameters = scene.at("parameters");
+      if (!parameters.is_array() || parameters.size() > 4) return Json::array();
+      std::array<bool, 4> used{};
+      for (const auto& parameter : parameters) {
+        const unsigned index = parameter.at("index").get<unsigned>();
+        if (index >= used.size() || used[index] ||
+            parameter.at("type") != "float" ||
+            parameter.at("min") != 0 || parameter.at("max") != 1 ||
+            !parameter.at("default").is_number() ||
+            parameter.at("default").get<float>() < 0.0f ||
+            parameter.at("default").get<float>() > 1.0f) return Json::array();
+        used[index] = true;
+      }
       catalog.push_back({{"id", scene.at("id")}, {"name", scene.at("name")},
-                         {"category", "procedural"}});
+                         {"category", "procedural"}, {"parameters", parameters}});
     }
     return catalog;
   } catch (const std::exception&) {
@@ -71,22 +86,16 @@ bool SceneAvailable(const Json& catalog, const std::string& id) {
   });
 }
 
-Json SignalJson(const SignalFrameV1& signal, double fps, double frameMs,
-                unsigned targetFps, unsigned tier, float gestureMotion,
-                const std::string& gestureName) {
-  return {
-      {"sampleIndex", signal.sampleIndex}, {"rms", signal.rms},
-      {"peak", signal.peak}, {"bands", signal.bands},
-      {"low", signal.bass}, {"mid", signal.mids}, {"high", signal.highs},
-      {"hit", signal.hit}, {"accent", signal.accent},
-      {"hitCount", signal.hitCount}, {"bpm", signal.bpm},
-      {"beatPhase", signal.beatPhase}, {"beatConfidence", signal.beatConfidence},
-      {"gesture", {{"motion", gestureMotion}, {"name", gestureName}}},
-      {"audio", {{"rms", signal.rms}, {"peak", signal.peak},
-                  {"low", signal.bass}, {"mid", signal.mids},
-                  {"high", signal.highs}, {"clipping", signal.peak >= 0.99f}}},
-      {"performance", {{"fps", fps}, {"targetFps", targetFps},
-                       {"frameTimeMs", frameMs}, {"adaptiveQuality", tier}}}};
+bool SceneParameterAvailable(const Json& catalog, const std::string& id,
+                             unsigned index) {
+  for (const auto& scene : catalog) {
+    if (scene.value("id", std::string{}) != id) continue;
+    for (const auto& parameter : scene.at("parameters")) {
+      if (parameter.at("index").get<unsigned>() == index) return true;
+    }
+    return false;
+  }
+  return false;
 }
 
 Json DeckJson(const DeckState& deck, const std::vector<ModulationRouteV1>& routes,
@@ -109,12 +118,13 @@ Json DeckJson(const DeckState& deck, const std::vector<ModulationRouteV1>& route
                            {"enabled", route.enabled}});
   }
   return {{"sceneId", deck.sceneId}, {"effects", effects},
+          {"sceneParams", deck.sceneParams},
           {"modulations", modulations}};
 }
 
 Json SnapshotJson(const ShowState& show, const SignalFrameV1& signal,
                   const Json& sceneCatalog, const std::vector<AudioDeviceInfo>& devices,
-                  const std::string& sourceId, bool audioConnected,
+                  const std::string& sourceId, bool audioConnected, bool audioReceiving,
                   bool spoutReady, double fps, double frameMs,
                   unsigned targetFps, unsigned tier, std::uint64_t revision,
                   const std::array<bool, ShowState::kCueCount>& cueSaved,
@@ -137,10 +147,12 @@ Json SnapshotJson(const ShowState& show, const SignalFrameV1& signal,
       {"decks", {{"A", DeckJson(state.decks[0], show.Routes(), 'A')},
                  {"B", DeckJson(state.decks[1], show.Routes(), 'B')}}},
       {"crossfader", state.crossfader},
+      {"masterEffects", state.masterEffects},
       {"blackout", state.blackout}, {"panicDim", state.panicDim},
       {"sceneCatalog", sceneCatalog},
       {"audio", {{"sourceId", sourceId}, {"sources", sources},
-                 {"connected", audioConnected}, {"rms", signal.rms},
+                 {"connected", audioConnected}, {"receiving", audioReceiving},
+                 {"rms", signal.rms},
                  {"peak", signal.peak}, {"low", signal.bass},
                  {"mid", signal.mids}, {"high", signal.highs},
                  {"clipping", signal.peak >= 0.99f}}},
@@ -171,6 +183,10 @@ bool ApplyCommand(const QueuedCommand& command, ShowState& show,
       throw std::invalid_argument("Deck must be A or B");
     };
     if (command.name == "requestSnapshot") return false;
+    if (command.name == "shutdownApplication") {
+      g_running = false;
+      return false;
+    }
     if (command.name == "setScene") {
       const auto sceneId = payload.at("sceneId").get<std::string>();
       if (!SceneAvailable(catalog, sceneId) || !show.SetScene(deckIndex(), sceneId)) {
@@ -186,6 +202,15 @@ bool ApplyCommand(const QueuedCommand& command, ShowState& show,
       const unsigned effectIndex = payload.at("effectIndex").get<unsigned>();
       if (effectIndex >= 4) throw std::invalid_argument("Effect index invalid");
       show.SetEffect(deckIndex(), effectIndex, payload.at("amount").get<float>());
+    } else if (command.name == "setSceneParameter") {
+      const unsigned deck = deckIndex();
+      const std::string sceneId = payload.at("sceneId").get<std::string>();
+      const unsigned index = payload.at("index").get<unsigned>();
+      if (show.Current().decks[deck].sceneId != sceneId ||
+          !SceneParameterAvailable(catalog, sceneId, index) ||
+          !show.SetSceneParameter(deck, index, payload.at("amount").get<float>())) {
+        throw std::invalid_argument("Scene parameter unavailable or stale");
+      }
     } else if (command.name == "setOverlay") {
       OverlayState overlay;
       overlay.enabled = payload.at("enabled").get<bool>();
@@ -309,6 +334,7 @@ int main(int argc, char** argv) {
   bool noAudio = false;
   bool noPersist = false;
   bool launchpadEnabled = false;
+  bool legacyRecursiveAudio = false;
   for (int index = 1; index < argc; ++index) {
     const std::string argument = argv[index];
     if (argument == "--seconds" && index + 1 < argc) {
@@ -319,9 +345,12 @@ int main(int argc, char** argv) {
       noPersist = true;
     } else if (argument == "--launchpad") {
       launchpadEnabled = true;
+    } else if (argument == "--legacy-recursive-audio") {
+      legacyRecursiveAudio = true;
     } else {
       std::cerr << "Usage: PrismForge.Engine [--seconds N] [--no-audio] "
-                   "[--no-persist] [--launchpad]\n";
+                   "[--no-persist] [--launchpad] "
+                   "[--legacy-recursive-audio]\n";
       ReleaseMutex(mutex);
       CloseHandle(mutex);
       return 64;
@@ -365,6 +394,9 @@ int main(int argc, char** argv) {
   if (!oscReady) std::cerr << "OSC unavailable; pipe control continues: " << error << '\n';
 
   SignalAnalyzer analyzer(audio.SampleRate());
+  MusicalStateEngineConfig musicalConfig;
+  musicalConfig.sampleRate = audio.SampleRate();
+  MusicalStateEngine musicalState(musicalConfig);
   ShowState show;
   ShowStore store;
   bool persistenceEnabled = !noPersist;
@@ -415,6 +447,8 @@ int main(int argc, char** argv) {
   auto lastPublish = Clock::time_point{};
   auto lastAutosave = start;
   auto lastHealth = start;
+  auto lastAudioBlock = Clock::time_point{};
+  bool staleSignalCleared = true;
   while (g_running && (seconds == 0 || Clock::now() - start < std::chrono::seconds(seconds))) {
     while (auto event = audio.Poll()) {
       if (event->hasDevices) {
@@ -425,10 +459,24 @@ int main(int argc, char** argv) {
         audioSource = event->activeId;
         while (audioQueue.TryPop()) {}  // Drop blocks from the prior sample clock.
         analyzer = SignalAnalyzer(event->sampleRate);
+        musicalState.SetSampleRate(event->sampleRate);
+        musicalState.Reset();
+        renderer.ResetMusicalSceneState();
         lastHitCount = 0;
         lastAccentCount = 0;
+        lastAudioBlock = Clock::time_point{};
+        staleSignalCleared = true;
         ++revision;
       } else if (event->kind == AudioSwitchEventKind::Disconnected) {
+        while (audioQueue.TryPop()) {}
+        analyzer = SignalAnalyzer(event->sampleRate);
+        musicalState.SetSampleRate(event->sampleRate);
+        musicalState.Reset();
+        renderer.ResetMusicalSceneState();
+        lastHitCount = 0;
+        lastAccentCount = 0;
+        lastAudioBlock = Clock::time_point{};
+        staleSignalCleared = true;
         ++revision;
       }
       if (!event->error.empty()) {
@@ -443,6 +491,22 @@ int main(int argc, char** argv) {
     }
     while (auto block = audioQueue.TryPop()) {
       analyzer.PushMono(block->samples.data(), block->count);
+      lastAudioBlock = Clock::now();
+      staleSignalCleared = false;
+    }
+    const bool audioReceiving = audio.IsRunning() &&
+        lastAudioBlock != Clock::time_point{} &&
+        Clock::now() - lastAudioBlock < std::chrono::milliseconds(250);
+    if (!audioReceiving && !staleSignalCleared) {
+      // A source can stop delivering blocks without an OS disconnect event.
+      // Never leave old spectral energy pinned on the display or shader.
+      analyzer = SignalAnalyzer(audio.SampleRate());
+      musicalState.SetSampleRate(audio.SampleRate());
+      musicalState.Reset();
+      renderer.ResetMusicalSceneState();
+      lastHitCount = 0;
+      lastAccentCount = 0;
+      staleSignalCleared = true;
     }
     SignalFrameV1 signal = analyzer.Latest();
     if (signal.hitCount > lastHitCount) {
@@ -456,6 +520,10 @@ int main(int argc, char** argv) {
       signal.hit = false;
       signal.accent = false;
     }
+    // Musical interpretation consumes the normalized one-frame hit/accent
+    // flags. Raw SignalFrameV1 remains authoritative for modulation and every
+    // scene other than the opt-in Recursive Circuit renderer path.
+    const MusicalStateFrameV1 musical = musicalState.Advance(signal);
     while (auto command = commands.TryPop()) {
       error.clear();
       const bool changed = command->name == "reloadShaders" ?
@@ -516,7 +584,8 @@ int main(int argc, char** argv) {
     error.clear();
     const auto effective = EffectiveShow(show, signal, routeSmoothing,
         1.0f / governor.Current().targetFps, gestureMotion);
-    if (!renderer.Render(effective, signal, governor.Current(), elapsed, error)) {
+    if (!renderer.Render(effective, signal, musical, !legacyRecursiveAudio,
+                         governor.Current(), elapsed, error)) {
       std::cerr << "Renderer error: " << error << '\n';
       break;
     }
@@ -539,12 +608,13 @@ int main(int argc, char** argv) {
     }
     if (now - lastPublish >= std::chrono::milliseconds(50)) {
       pipe.Publish(SnapshotJson(show, signal, sceneCatalog, devices, audioSource,
-                                audio.IsRunning(), true, measuredFps, renderMs,
+                                audio.IsRunning(), audioReceiving, true, measuredFps, renderMs,
                                 governor.Current().targetFps, governor.TierIndex(),
                                 revision, cueSaved, oscReady, prismBurstHealth),
-                   SignalJson(signal, measuredFps, renderMs,
-                              governor.Current().targetFps, governor.TierIndex(),
-                              gestureMotion, gestureName));
+                   BuildSignalTelemetry(
+                       signal, musical, musicalState.SampleRate(), measuredFps,
+                       renderMs, governor.Current().targetFps,
+                       governor.TierIndex(), gestureMotion, gestureName));
       lastPublish = now;
     }
     if (persistenceEnabled && now - lastAutosave >= std::chrono::seconds(10) &&

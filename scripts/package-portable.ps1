@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$NativeBuildDirectory,
-    [string]$OutputDirectory
+    [string]$OutputDirectory,
+    [switch]$CreateDesktopShortcut
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,6 +22,14 @@ $frontend = Join-Path $repository 'control\ui\dist\index.html'
 if (-not (Test-Path -LiteralPath $frontend -PathType Leaf)) {
     throw 'Control frontend is not built. Run control\build.ps1 first.'
 }
+$teaserGuide = Join-Path $repository 'docs\SHOW_TEASER.md'
+if (-not (Test-Path -LiteralPath $teaserGuide -PathType Leaf)) {
+    throw "Show teaser guide is missing: $teaserGuide"
+}
+$musicalMonitor = Join-Path $repository 'tools\watch-musical-state.ps1'
+if (-not (Test-Path -LiteralPath $musicalMonitor -PathType Leaf)) {
+    throw "Musical-state monitor is missing: $musicalMonitor"
+}
 
 if (-not $OutputDirectory) {
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -37,10 +46,29 @@ dotnet publish $project -c Release -r win-x64 --self-contained false -o $destina
 if ($LASTEXITCODE -ne 0) { throw 'Control publish failed' }
 Copy-Item -LiteralPath $engine -Destination $destination
 Copy-Item -LiteralPath $launcher -Destination $destination
+$iconScript = Join-Path $repository 'scripts\create-prismforge-icon.ps1'
+$iconFile = Join-Path $repository 'assets\branding\PrismForge.ico'
+if (-not (Test-Path -LiteralPath $iconFile)) {
+    & $iconScript | Out-Null
+}
+Copy-Item -LiteralPath $iconFile -Destination (Join-Path $destination 'PrismForge.ico')
 Copy-Item -LiteralPath $assets -Destination $destination -Recurse
 Copy-Item -LiteralPath (Join-Path $repository 'README.md') -Destination $destination
+$packageDocs = Join-Path $destination 'docs'
+New-Item -ItemType Directory -Path $packageDocs | Out-Null
+Get-ChildItem -LiteralPath (Join-Path $repository 'docs') -Filter '*.md' -File |
+    ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination $packageDocs }
 Copy-Item -LiteralPath (Join-Path $repository 'docs\STATUS.md') `
     -Destination (Join-Path $destination 'STATUS.md')
+Copy-Item -LiteralPath $teaserGuide -Destination (Join-Path $destination 'SHOW_TEASER.md')
+$packageTools = Join-Path $destination 'tools'
+New-Item -ItemType Directory -Path $packageTools | Out-Null
+Copy-Item -LiteralPath (Join-Path $repository 'tests\audio-signal-smoke.ps1') `
+    -Destination $packageTools
+Copy-Item -LiteralPath $musicalMonitor -Destination $packageTools
+Set-Content -LiteralPath (Join-Path $destination 'milk_mix.txt') -Encoding ascii -Value @'
+2 0.80
+'@
 
 $hashes = Get-ChildItem -LiteralPath $destination -Recurse -File |
     Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
@@ -53,4 +81,8 @@ $hashes = Get-ChildItem -LiteralPath $destination -Recurse -File |
 $hashes | Set-Content -LiteralPath (Join-Path $destination 'SHA256SUMS.txt') `
     -Encoding Ascii
 Write-Output "Portable PrismForge alpha: $destination"
-Write-Output 'No PrismBurst files, desktop shortcuts, or installed programs were changed.'
+if ($CreateDesktopShortcut) {
+    & (Join-Path $repository 'scripts\install-desktop-shortcut.ps1') -PackageDirectory $destination
+}
+Write-Output 'Launch with PrismForge.Launcher.exe (starts Engine + Control).'
+Write-Output 'No PrismBurst files or installed programs were changed unless -CreateDesktopShortcut was used.'

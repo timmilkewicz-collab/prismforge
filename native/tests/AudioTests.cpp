@@ -30,6 +30,7 @@ struct FakeState {
   std::string blockedId;
   bool release = false;
   std::atomic_bool enteredBlockedStart{false};
+  std::atomic_bool interrupted{false};
 };
 
 class FakeCapture final : public IAudioCapture {
@@ -76,7 +77,9 @@ class FakeCapture final : public IAudioCapture {
     state_->log.push_back(std::string(active ? "on:" : "off:") + id_);
   }
 
-  bool IsRunning() const noexcept override { return running_; }
+  bool IsRunning() const noexcept override {
+    return running_ && !state_->interrupted.load();
+  }
   unsigned SampleRate() const noexcept override { return 48000; }
 
  private:
@@ -207,6 +210,34 @@ void TestSwitchHandoffAndBoundedRequests() {
   }
 }
 
+void TestInterruptedCaptureRecoversOnce() {
+  BoundedQueue<AudioBlock> samples(8);
+  auto state = std::make_shared<FakeState>();
+  const auto sourceA = WasapiSourceId(false, L"A");
+  AudioSwitcher switcher(samples, [state](BoundedQueue<AudioBlock>&) {
+    return std::make_unique<FakeCapture>(state);
+  });
+  std::string error;
+  CHECK(switcher.Start(false, error));
+  (void)WaitFor(switcher, AudioSwitchEventKind::Sources);
+  CHECK(switcher.Request(sourceA, error));
+  (void)WaitFor(switcher, AudioSwitchEventKind::Switched);
+  CHECK(switcher.IsRunning());
+
+  state->interrupted.store(true);
+  const auto lost = WaitFor(switcher, AudioSwitchEventKind::Disconnected);
+  CHECK(lost.activeId == sourceA && !lost.connected);
+  CHECK(!switcher.IsRunning());
+
+  state->interrupted.store(false);
+  const auto recovered = WaitFor(switcher, AudioSwitchEventKind::Switched);
+  CHECK(recovered.requestedId == sourceA && recovered.activeId == sourceA);
+  CHECK(recovered.connected && switcher.IsRunning());
+  std::this_thread::sleep_for(30ms);
+  CHECK(!switcher.Poll());  // No duplicate recovery on later worker polls.
+  switcher.Stop();
+}
+
 }  // namespace
 
 int main() {
@@ -214,4 +245,5 @@ int main() {
   TestCallbackDrainBarrier();
   TestFailedSwitchRetainsOldAndDoesNotBlockCaller();
   TestSwitchHandoffAndBoundedRequests();
+  TestInterruptedCaptureRecoversOnce();
 }

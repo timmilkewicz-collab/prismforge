@@ -13,6 +13,17 @@ export interface SceneDescriptor {
   id: string
   name: string
   category?: string
+  parameters?: SceneParameterDescriptor[]
+}
+
+export interface SceneParameterDescriptor {
+  id: string
+  name: string
+  type: 'float'
+  index: number
+  min: number
+  max: number
+  default: number
 }
 
 export interface EffectState {
@@ -32,6 +43,7 @@ export interface ModulationState {
 
 export interface DeckState {
   sceneId: string
+  sceneParams: number[]
   effects: EffectState[]
   modulations: ModulationState[]
 }
@@ -46,6 +58,8 @@ export interface AudioSource {
 export interface AudioState {
   sourceId: string
   sources: AudioSource[]
+  connected: boolean
+  receiving: boolean
   rms: number
   peak: number
   low: number
@@ -81,6 +95,7 @@ export interface EngineState {
   revision: number
   decks: Record<DeckId, DeckState>
   crossfader: number
+  masterEffects: number[]
   blackout: boolean
   panicDim: boolean
   sceneCatalog: SceneDescriptor[]
@@ -103,11 +118,13 @@ export interface HostViewState {
   connection: HostConnection
   connectionMessage: string
   engine: EngineState
+  masterEffectsAvailable: boolean
   notice?: { kind: 'info' | 'error'; message: string }
 }
 
 export const emptyDeck = (): DeckState => ({
   sceneId: '',
+  sceneParams: [0.5, 0.5, 0.5, 0.5],
   effects: [
     { id: 0, name: 'Bloom', amount: 0 },
     { id: 1, name: 'Feedback', amount: 0 },
@@ -124,12 +141,15 @@ export const initialEngineState = (): EngineState => ({
   revision: 0,
   decks: { A: emptyDeck(), B: emptyDeck() },
   crossfader: 0.5,
+  masterEffects: [0, 0, 0, 0],
   blackout: false,
   panicDim: false,
   sceneCatalog: [],
   audio: {
     sourceId: '',
     sources: [],
+    connected: false,
+    receiving: false,
     rms: 0,
     peak: 0,
     low: 0,

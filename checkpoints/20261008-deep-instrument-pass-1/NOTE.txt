@@ -1,0 +1,1 @@
+﻿Deep instrument pass 1: nest preserve blend all scene_nest branches; centerPressure wired to sceneParams[3]; SceneInstrument multi-center + depth helpers; all 18 native scenes get visible center rims/regions.

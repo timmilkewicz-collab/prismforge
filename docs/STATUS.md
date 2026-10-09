@@ -6,14 +6,38 @@ that Resolume, an audio interface, or the installed live rig works.
 ## Implemented in source
 
 - Two scene decks, crossfader, blackout and panic-dim state.
-- Twelve original procedural HLSL scenes with a SceneManifestV1 asset.
+- Eighteen original procedural HLSL scenes with a SceneManifestV1 asset,
+  including the independently authored Hex Vortex, Ferrofluid Reactor,
+  Shardwell, Neon Orbs, Mirror Cathedral and Recursive Circuit. Shardwell,
+  Neon Orbs and Mirror Cathedral use the
+  operator's video library as visual direction; no source footage or frames
+  are included. Mirror Cathedral exposes live symmetry, depth, aperture and
+  line-width controls per deck. Recursive Circuit is an original folded
+  liquid-circuit field with Branching, Flow, Depth and Charge controls. Its
+  first candidate was auditioned in Arena; the operator liked its added
+  complexity but found its motion, fluidity and color/shape changes still far
+  short of NestDrop. The later `20261005-233633` portable alpha adds a
+  render-thread music envelope, a decaying onset, an audio-integrated flow
+  clock and eased palette/topology phrases. It is now under supervised live
+  audition, not show-cleared.
 - Fixed 1920×1080 BGRA8 D3D11 output and `PrismForge` Spout sender.
 - Four actual per-deck GPU effects: Bloom, Feedback, Kaleidoscope and Pixelate.
-- Four adaptive internal-resolution/frame-rate tiers.
+- Four default-off master performance controls: Motion, Warp, Trails and Color,
+  exposed in Control and retained in show snapshots/cues. Control disables
+  these macros when an older Engine snapshot lacks them.
+- Four adaptive internal-resolution/frame-rate tiers. The renderer now
+  compiles and selects quality-specific scene variants at runtime. Its current
+  governor observes CPU render submission time, not GPU completion time.
 - Asynchronous WASAPI loopback and selectable input capture through pinned
   miniaudio, using exact endpoint identities instead of device-list positions.
+- Capture-open and fresh-block status are reported separately. A disconnect or
+  250 ms block-delivery stall clears stale analyzer levels; resumed capture
+  publishes a recovery event. A bounded aggregate-only audio check can test
+  a selected physical endpoint without recording raw audio.
 - 256-sample transient envelopes and 2048-sample/75%-overlap FFT analysis.
 - Beat/bar-quantized cue storage and a 64-slot modulation route model.
+- Four normalized live scene parameters are retained in cues and ShowBundleV1;
+  older v1 bundles without them load at neutral values.
 - Atomic `%APPDATA%\PrismForge` autosave, portable `ShowBundleV1` save/load,
   and restore validation. A rejected autosave is preserved under a unique
   adjacent name before writes resume; if preservation fails, writes stay off
@@ -32,8 +56,11 @@ that Resolume, an audio interface, or the installed live rig works.
 - A separate RTX 4070 D3D11→Spout spike sent 720 frames in 12 seconds at
   1920×1080 BGRA8. An independent Spout receiver on the same host observed 360
   fresh frames over six seconds and 29 changed center-pixel samples.
-- Twelve HLSL scene passes compile as `ps_5_0` across four tier definitions
+- Eighteen HLSL scene passes compile as `ps_5_0` across four tier definitions
   with warnings treated as errors.
+- The isolated GPU receiver confirms Mirror Cathedral's four live controls and
+  synthetic bass/mids/highs/hit inputs each change pixels. This does not yet
+  prove visible response from FL Studio or the Maono input.
 - A deterministic independent receiver saw distinct GPU pixels for all four
   deck effects at full strength. Changing all internal quality tiers left the
   Spout sender at 1920×1080 BGRA8, including the 30 fps safety gate.
@@ -42,22 +69,182 @@ that Resolume, an audio interface, or the installed live rig works.
 - Autosave wrote a validated `ShowBundleV1` file and restored it on restart;
   `--no-persist` did not change its timestamp.
 - Seven Release native tests pass, including always-on Launchpad mapping,
-  audio handoff, and rejected-autosave assertions. Twenty-three .NET control
+  audio handoff/recovery, and rejected-autosave assertions. Thirty-five .NET control
   tests pass. A test-owned Control process was force-terminated while the
   Engine remained live, then a new IPC client read the 1080p sender state.
+- Resolume Arena 7.6 visibly received the packaged Engine's 1920x1080
+  `PrismForge` Spout output at checkpoints spanning 30 minutes 10 seconds. An
+  independent receiver ran concurrently for 1,800 seconds and passed with
+  107,997 fresh frames
+  (about 60 fps), 8,841 changed-pixel samples and fixed BGRA8 format. This
+  run had audio disabled; the probe does not measure Arena's output FPS.
+- A later 16-scene development build displayed the four recent procedural
+  looks and a manual crossfade in the still-unsaved Arena composition. Two
+  independent 30-second receiver checks observed 1,800 and 1,798 new frames
+  at fixed 1920×1080 BGRA8 while Arena stayed responsive. Audio and physical
+  controller validation were not part of these checks.
+- A 17-scene development build passed its IPC smoke for Mirror Cathedral's
+  scene controls and stale-command guard, along with fixed 1080p output and
+  reconnect. A short Arena visual QA confirmed the sender appeared in the
+  existing unsaved composition, and a second art pass produced larger faceted
+  panels and a visibly different low-symmetry silhouette. The final shader
+  was packaged in `dist/PrismForge-alpha-20260922-220042`; its 49 hashes,
+  packaged IPC/control-survival checks, Arena reception, and a ten-second
+  601-frame independent Spout continuity probe passed. The package remains a
+  visual-only development candidate, not show-cleared output.
+- With no music playing, the default system loopback opened but delivered no
+  fresh blocks. Maono MIC In 1/2 delivered fresh blocks near its idle noise
+  floor (about 0.0001 RMS) and no hit events. Neither is a music-signal pass.
+- After the operator connected music and the interface on 2026-10-05, the
+  current portable package passed separate aggregate-only `ACTIVE_SIGNAL`
+  checks on system-default loopback and the currently enumerated Maono MIC
+  In 1/2 input. The exact-package IPC and Control-crash checks, 49 package
+  hashes, 7 native, 35 .NET and 8 UI tests also passed. No playback-versus-pause
+  visual response or Arena output FPS was measured in this session.
+- In a later supervised garage preview, the operator selected Maono MIC In
+  1/2 and observed Mirror Cathedral reacting to music in Resolume. After an
+  orderly switch from a bounded preview to an unbounded `--no-persist` Engine,
+  OSC status sampled 59.9–60.1 Engine fps at tier 0 with music RMS ranging
+  0.0055–0.2034 and Spout ready. Arena visibly displayed the scene, and an
+  independent receiver counted 600 new fixed-1080p frames in ten seconds.
+  Music-pause comparison and Arena's own output fps were not measured.
+- On the separate `codex/recursive-visuals` source branch, 18 scenes compiled
+  across all four tiers with warnings as errors. Seven Release native tests
+  and an isolated RTX EffectProbe passed. At fixed time, quiet-to-music-range
+  fixtures changed 139/576 sampled pixels for Neon Orbs, 134/576 for
+  Shardwell and 458/576 for Recursive Circuit; all four new scene controls
+  and each of bass, mids, highs and hit changed GPU pixels. These are
+  synthetic checks, not an Arena or live-mic acceptance of the new build.
+- The `20261005-224222` alpha was then opened beside the existing Resolume
+  composition. A receiver saw 601 fresh 1920x1080 BGRA8 frames in ten seconds;
+  Engine status was about 60 fps at tier 0 with nonzero audio RMS. The active
+  NestDrop clip on the higher Resolume layer was stopped (not deleted) to
+  isolate Recursive Circuit. The operator's live visual verdict was improved
+  complexity, but insufficient musical motion, fluidity and color/shape
+  switching. This is feedback, not show acceptance.
+- The response pass keeps `SignalFrameV1` raw meter values intact
+  while deriving bounded visual energy, a 300 ms onset tail, integrated flow
+  and eased multi-phrase palette/topology transitions for Recursive Circuit.
+  Its isolated CPU/GPU fixtures passed before the exact package was built and
+  auditioned in the Resolume/Maono path.
+- The hash-verified `20261005-233633` package passed exact-package IPC smoke
+  and replaced only the verified older PrismForge Engine/Control after the
+  operator approved a brief restart. The unbounded `--no-persist` Engine and
+  matching Control remain live; the existing Arena composition was not saved.
+  The higher NestDrop clip was stopped, not removed, exposing Recursive
+  Circuit on Deck A. An independent receiver counted 597 fresh fixed-1080p
+  BGRA8 frames in ten seconds; Engine status stayed near 60 fps at tier 0.
+  Maono MIC In 1/2 was connected and receiving. The operator judged the new
+  motion a real improvement but still far below NestDrop's evolving looks.
+  Live RMS later spanned 0.02195–0.84279 during a music/interaction sample;
+  gain and clipping quality need checking. Windows memory use was 92.7–94.2%
+  during this preview, a rig headroom concern. Controlled music-versus-pause,
+  Arena output FPS, flash-risk and full mixed-load soak remain unverified.
+- A further **source-only, default-off** Flow Echo candidate reuses the
+  existing per-deck Feedback history for Recursive Circuit. When that deck's
+  Feedback is enabled, its Flow control and the bounded reactive energy,
+  onset and flow clock gently advect the prior image; Feedback at zero and
+  every other scene keep the previous effect path. It allocates no additional
+  GPU textures or show-schema fields. The offline Release Engine built and
+  the isolated RTX EffectProbe passed, including matched feedback timelines,
+  exact non-Recursive output invariance, quality resize/scene switching,
+  bounded luminance, blackout and panic-dim. This is **not** in the running
+  `233633` package and has not been auditioned with Maono in Arena. A separate
+  `20261006-001115` portable candidate contains it; all 50 packaged SHA-256
+  entries match, but exact-package IPC, Control survival and Arena reception
+  have not been retested for that folder.
 
 ## Not yet accepted for live use
 
-- Resolume reception and the 30-minute fixed-format smoke test.
+- Arena's own output FPS measurement and end-to-end 1080p60 proof.
 - One-hour two-deck, overlay, audio and controller soak.
-- Real FL Studio/system loopback, Maono/interface and room-PA validation.
+- Repeated Arena reconnect stability after the observed Spout interop warning,
+  plus Arena's own output-FPS measurement for the new portal scenes.
+- Playback-versus-pause visual response in Arena, specific FL Studio/room-PA
+  routing, gain/beat quality and end-to-end latency; the two live-input meter
+  passes above do not establish these.
 - Physical Launchpad S input/LED colors, coexistence and reconnect; generic
   MIDI learn is not implemented. Live OSC/PrismBurst hardware validation also
   remains pending even though both bridges are in source.
 - Four independent overlay slots, arbitrary media/webcam/Spout receiver.
 - Curated palettes and full effects catalog.
 - GPU luminance-change risk meter, venue-safe profile and soft limiter.
+- GPU-timestamp-driven adaptive quality and nonblocking shader hot reload.
 - ShowBundleV1 migration beyond v1, A/B undo and recording.
 - Latency measurement, audio/video recording verification and installer.
 
 No existing PrismBurst runtime, checkout or shortcut is modified by this repo.
+
+## Musical interpretation operator-ready source — 2026-10-06 PT
+
+- Branch `codex/musical-interpretation` adds a renderer-neutral,
+  deterministic `MusicalStateEngine` between `SignalFrameV1` and scene
+  behavior. Its fixed 64-byte output contract carries fast onset/accent
+  envelopes, groove, sustained energy, trend, overlapping
+  calm/building/driving/peak/release confidences, committed-state age and a
+  seeded transition event ID. Time comes only from the analyzer sample clock;
+  memory is fixed-size and malformed values are sanitized.
+- Recursive Circuit remains the only migrated scene. A renderer-owned adapter
+  maps musical state to flow, density, topology, palette, impact, release and
+  bounded event variation. Other scenes, meters, cue timing and modulation
+  retain their raw-signal paths. The core has no scene, deck, D3D, Spout,
+  shader, Resolume, Control or renderer-clock dependency; future PrismBurst
+  reuse needs only a `SignalFrameV1`-compatible input adapter/shared contract.
+- The packaged Launcher now forwards `--legacy-recursive-audio` only when it
+  starts a new Engine and refuses to pretend the flag was applied to an
+  already-running Engine. The default command line is unchanged.
+- Eight checked-in analyzed-feature fixtures cover silence, low groove,
+  repeated transients, buildup, buildup-to-peak, peak-to-release, an isolated
+  transient and sustained loud energy. Exact replay/reset hashes, explicit
+  behavior ranges, duplicate/counter precedence, clean reconnect, bounded
+  gaps, seed isolation, render-cadence independence and a 120,000-frame run
+  pass; regenerating all eight CSV files is byte-identical.
+- A fresh Release build and 12/12 native CTests pass. All 18 shaders compile at
+  all four tiers, Control passes 10/10 UI and 35/35 .NET tests, source IPC and
+  Control-crash/reconnect checks pass, and the executed isolated GPU probe
+  passes musical density/topology/impact/release separation, bounded output,
+  blackout, panic dim, all tiers including the 30 fps gate, fixed 1080p output,
+  hot-reload rollback, non-Recursive invariance and legacy isolation.
+- The existing local IPC SignalFrame now has an additive `musical` telemetry
+  object. A packaged read-only monitor verifies the pipe-server executable and
+  shows sample time, RMS, groove, buildup, peak, release, calm, event ID and
+  Engine FPS without sending commands or redesigning Control.
+- Five Release benchmark runs measured 299.95–366.32 ns per update on this
+  host, with identical checksums, zero observed `operator new` calls/bytes in
+  the measured update hot path, a 64-byte frame and no observed process-memory
+  delta. Single-call and batch maxima are scheduler-sensitive, not hard
+  real-time bounds.
+- With operator permission, the verified `20261005-233633` known-good Engine
+  was gracefully stopped to free its sender/pipe/OSC ownership. Its package
+  was not modified or replaced. PrismBurst, Resolume compositions, Maono and
+  physical audio routing were not changed. At that checkpoint live music
+  quality, Arena output FPS, flash risk and the mixed-load soak remained
+  operator gates; the supervised evidence below closes only the basic live
+  music-response and short stability gates.
+- The exact portable audition candidate is
+  `dist/PrismForge-alpha-20261006-032359-musical-state-operator-ready`.
+  All 53 manifest entries match. Exact-package Launcher layout, IPC/reconnect,
+  Control-crash survival, normal Launcher startup and legacy rollback startup
+  pass. The short Launcher checks opened the existing default capture path but
+  did not select a device or change routing; autosave remained absent.
+- The `032359` Engine remained running while Control alone moved to
+  `dist/PrismForge-alpha-20261006-215337-musical-state-control-link-hotfix`
+  after commit `b3e7b22`. The fix treats a full live Engine snapshot as
+  authoritative after WebView startup. It passed 10/10 UI and 35/35 .NET tests;
+  all 53 package-manifest entries match. Arena, Engine, music and audio routing
+  stayed live during the Control-only handoff.
+- With Resolume open and music playing, the operator reported that the current
+  combination was "working perfectly." A 600.9-second passive status soak then
+  received 596 samples with no receive timeout, tier 0 throughout, no Spout-ready
+  failure, 59.990 average Engine fps and RMS from 0.000 to 0.519. Engine memory
+  stayed 46.6–49.2 MB and Control stayed 159.3–159.4 MB. One isolated 53.096 fps
+  sample paired with a 64.967 catch-up sample; cadence otherwise remained near
+  60 fps. Independent ten-second receiver checks before and after the soak saw
+  592 and 600 fresh, changing 1920×1080 BGRA8 frames.
+- A separate 120-second read-only musical-state observation advanced source
+  sample time by 119.83 seconds. Groove moved through at least 0.013–0.703;
+  buildup reached 0.196 and decayed; peak reached 0.296; release persisted
+  independently; and the event ID did not churn. Calm remained zero under the
+  continuous music, so controlled pause/resume decay, legacy A/B, Arena's own
+  output FPS, flash safety, gain/latency quality and the one-hour mixed-load
+  soak remain open. Control was then restored from the same hotfix package.

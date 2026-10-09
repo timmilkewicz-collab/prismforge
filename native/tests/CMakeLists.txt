@@ -6,6 +6,43 @@ add_executable(prismforge_core_tests CoreTests.cpp)
 target_link_libraries(prismforge_core_tests PRIVATE prismforge_core)
 add_test(NAME prismforge_core_tests COMMAND prismforge_core_tests)
 
+add_executable(prismforge_musical_state_tests MusicalStateTests.cpp)
+target_link_libraries(prismforge_musical_state_tests PRIVATE prismforge_core)
+target_compile_definitions(prismforge_musical_state_tests PRIVATE
+  PRISMFORGE_MUSICAL_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/musical")
+if(MSVC)
+  target_compile_options(prismforge_musical_state_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME prismforge_musical_state_tests COMMAND prismforge_musical_state_tests)
+
+add_executable(prismforge_telemetry_tests
+  TelemetryTests.cpp
+  ../engine/SignalTelemetry.cpp)
+target_include_directories(prismforge_telemetry_tests PRIVATE ../engine)
+target_link_libraries(prismforge_telemetry_tests PRIVATE
+  prismforge_core nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(prismforge_telemetry_tests PRIVATE /W4 /permissive-)
+endif()
+add_test(NAME prismforge_telemetry_tests COMMAND prismforge_telemetry_tests)
+
+find_program(PRISMFORGE_POWERSHELL_EXECUTABLE NAMES powershell REQUIRED)
+add_test(NAME prismforge_musical_monitor_parser
+  COMMAND "${PRISMFORGE_POWERSHELL_EXECUTABLE}" -NoProfile
+    -ExecutionPolicy Bypass -File
+    "${PROJECT_SOURCE_DIR}/tools/watch-musical-state.ps1" -SelfTest)
+
+# Developer benchmark only: timing is intentionally not a pass/fail CTest.
+add_executable(prismforge_musical_state_benchmark MusicalStateBenchmark.cpp)
+target_compile_definitions(prismforge_musical_state_benchmark PRIVATE
+  WIN32_LEAN_AND_MEAN NOMINMAX)
+target_link_libraries(prismforge_musical_state_benchmark PRIVATE
+  prismforge_core psapi)
+if(MSVC)
+  target_compile_options(prismforge_musical_state_benchmark PRIVATE
+    /W4 /permissive-)
+endif()
+
 add_executable(prismforge_osc_tests
   OscTests.cpp
   ../engine/OscBridge.cpp)

@@ -31,16 +31,19 @@ public static class ProtocolCodec
     {
         "requestSnapshot",
         "setScene",
+        "setSceneParameter",
         "setCrossfader",
         "setBlackout",
         "setPanicDim",
         "setEffect",
+        "setMasterEffect",
         "setModulation",
         "saveCue",
         "recallCue",
         "setAudioSource",
         "saveShow",
-        "loadShow"
+        "loadShow",
+        "shutdownApplication"
     };
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -136,10 +139,17 @@ public static class ProtocolCodec
         switch (action)
         {
             case "requestSnapshot":
+            case "shutdownApplication":
                 return;
             case "setScene":
                 RequiredDeck(payload);
                 RequiredString(payload, "sceneId");
+                return;
+            case "setSceneParameter":
+                RequiredDeck(payload);
+                RequiredString(payload, "sceneId");
+                RequiredInteger(payload, "index", 0, 3);
+                RequiredNumber(payload, "amount", 0, 1);
                 return;
             case "setCrossfader":
                 RequiredNumber(payload, "value", 0, 1);
@@ -151,6 +161,10 @@ public static class ProtocolCodec
             case "setEffect":
                 RequiredDeck(payload);
                 RequiredInteger(payload, "effectIndex", 0, int.MaxValue);
+                RequiredNumber(payload, "amount", 0, 1);
+                return;
+            case "setMasterEffect":
+                RequiredInteger(payload, "index", 0, 3);
                 RequiredNumber(payload, "amount", 0, 1);
                 return;
             case "setModulation":

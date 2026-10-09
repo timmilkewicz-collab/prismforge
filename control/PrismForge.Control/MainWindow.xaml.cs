@@ -11,6 +11,7 @@ public partial class MainWindow : Window
     private readonly Queue<string> _pendingWebMessages = new();
     private readonly CancellationTokenSource _lifetime = new();
     private bool _webReady;
+    private bool _shutdownRequested;
 
     public MainWindow()
     {
@@ -113,6 +114,21 @@ public partial class MainWindow : Window
 
             using var document = JsonDocument.Parse(e.WebMessageAsJson);
             var root = document.RootElement;
+            if (root.TryGetProperty("kind", out var hostKind) &&
+                hostKind.GetString() == "HostRequest" &&
+                root.TryGetProperty("action", out var hostAction) &&
+                hostAction.GetString() == "shutdownAll")
+            {
+                if (_shutdownRequested)
+                {
+                    return;
+                }
+
+                _shutdownRequested = true;
+                await StackShutdown.ShutdownEngineAndExitAsync(_pipeClient, _lifetime.Token);
+                return;
+            }
+
             if (!root.TryGetProperty("kind", out var kind) || kind.GetString() != "EngineEnvelope" ||
                 !root.TryGetProperty("envelope", out var rawEnvelope))
             {

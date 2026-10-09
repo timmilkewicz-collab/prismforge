@@ -16,6 +16,9 @@ bool ValidSnapshot(const ShowSnapshot& snapshot) {
     for (float amount : deck.effects) {
       if (!std::isfinite(amount) || amount < 0.0f || amount > 1.0f) return false;
     }
+    for (float amount : deck.sceneParams) {
+      if (!std::isfinite(amount) || amount < 0.0f || amount > 1.0f) return false;
+    }
   }
   for (const auto& overlay : snapshot.overlays) {
     if (!std::isfinite(overlay.opacity) || overlay.opacity < 0.0f ||
@@ -49,6 +52,14 @@ void ShowState::SetEffect(unsigned deck, unsigned index, float value) {
   if (deck < current_.decks.size() && index < 4 && std::isfinite(value)) {
     current_.decks[deck].effects[index] = std::clamp(value, 0.0f, 1.0f);
   }
+}
+
+bool ShowState::SetSceneParameter(unsigned deck, unsigned index, float value) {
+  if (deck >= current_.decks.size() ||
+      index >= current_.decks[deck].sceneParams.size() ||
+      !std::isfinite(value) || value < 0.0f || value > 1.0f) return false;
+  current_.decks[deck].sceneParams[index] = value;
+  return true;
 }
 
 bool ShowState::SetOverlay(unsigned slot, OverlayState overlay) {

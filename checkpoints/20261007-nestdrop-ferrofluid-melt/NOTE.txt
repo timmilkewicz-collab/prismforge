@@ -1,0 +1,3 @@
+Source checkpoint of the NestDrop melt inside Ferrofluid Reactor, taken before scene-specific transforms.
+Mode 2 in SpoutRender.cpp is the displacement path. FerrofluidReactor.hlsl is the native field that fed it.
+The shaders folder is the native scene set from that same moment.

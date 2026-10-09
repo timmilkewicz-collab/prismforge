@@ -30,6 +30,10 @@ export function sendCommand(payload: Record<string, unknown>): void {
   window.chrome?.webview?.postMessage({ kind: 'EngineEnvelope', envelope })
 }
 
+export function requestShutdownAll(): void {
+  window.chrome?.webview?.postMessage({ kind: 'HostRequest', action: 'shutdownAll' })
+}
+
 export function subscribeToHost(listener: (message: HostMessage) => void): () => void {
   const webview = window.chrome?.webview
   if (!webview) return () => undefined

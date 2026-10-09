@@ -41,6 +41,7 @@ add_executable(PrismForge.Engine
   MidiBridge.cpp
   OscBridge.cpp
   PipeServer.cpp
+  SignalTelemetry.cpp
   ShowStore.cpp
   SpoutRender.cpp)
 target_compile_definitions(PrismForge.Engine PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -56,10 +57,21 @@ if(MSVC)
 endif()
 set_target_properties(PrismForge.Engine PROPERTIES
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-add_custom_command(TARGET PrismForge.Engine POST_BUILD
+# Shader-only edits must refresh the runtime assets even when the Engine's
+# C++ objects are already up to date. This also keeps portable packages from
+# accidentally picking up an older post-build shader copy.
+if(CMAKE_CONFIGURATION_TYPES)
+  # Multi-config generators append the selected configuration to this target's
+  # RUNTIME_OUTPUT_DIRECTORY; single-config generators do not.
+  set(PRISMFORGE_ASSET_OUTPUT_DIR "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/assets")
+else()
+  set(PRISMFORGE_ASSET_OUTPUT_DIR "${CMAKE_BINARY_DIR}/bin/assets")
+endif()
+add_custom_target(PrismForge.Assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${PROJECT_SOURCE_DIR}/assets/shaders"
-    "$<TARGET_FILE_DIR:PrismForge.Engine>/assets/shaders"
+    "${PRISMFORGE_ASSET_OUTPUT_DIR}/shaders"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${PROJECT_SOURCE_DIR}/assets/scenes"
-    "$<TARGET_FILE_DIR:PrismForge.Engine>/assets/scenes")
+    "${PRISMFORGE_ASSET_OUTPUT_DIR}/scenes")
+add_dependencies(PrismForge.Engine PrismForge.Assets)

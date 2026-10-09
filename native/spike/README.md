@@ -4,7 +4,12 @@ This standalone program renders an animated 1920x1080 BGRA8 Direct3D 11 texture
 on the RTX 4070 and publishes it as the `PrismForge` Spout sender. Its probe mode
 receives the same sender through the official Spout2 DirectX API and checks
 dimensions, format, fresh frames, and changing pixel content. It does not depend
-on the future engine.
+on the future engine. The receiver hashes an 8×5 spatial pixel grid rather
+than a single center pixel, so an intentional dark portal center does not
+falsely fail a moving scene.
+It compares adjacent grid samples; probes of six seconds or longer require
+motion in each third of the run, so an initially moving picture that freezes
+does not pass.
 
 Build with the installed Visual Studio 2026 C++ tools:
 
@@ -39,8 +44,14 @@ the received Spout texture remains 1920x1080 BGRA8, including the 30 fps
 safety-tier gate. The same probe verifies panic-dim lowers full-frame average
 luminance, blackout emits zero RGB, and a deliberately invalid shader reload
 keeps the previous valid output. It restores the shader and verifies a valid
-reload afterward. The reload test uses a unique temporary copy of all twelve
-shaders; source assets are not changed:
+reload afterward. It also fingerprints every received RGB pixel of Mirror
+Cathedral at a fixed timestamp: all four scene controls and synthetic bass,
+mids, highs, and hit must independently change the image, while an unchanged
+input must reproduce the same fingerprint. This is GPU signal-path coverage,
+not proof of physical audio responsiveness or show safety. The reload test
+uses a unique temporary copy of all seventeen
+shaders and publishes as `PrismForge.EffectProbe`, not the live `PrismForge`
+sender; source assets are not changed:
 
 ```powershell
 & $cmake --build build/spout-spike --config Release --target PrismForge.EffectProbe

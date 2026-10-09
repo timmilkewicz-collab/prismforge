@@ -17,7 +17,8 @@ is the only path to show-state mutation; audio callback threads also publish to
 a bounded queue and do not mutate show state.
 
 Commands currently accepted: `requestSnapshot`, `setScene` (`deck` A/B,
-`sceneId`), `setCrossfader` (`value` 0–1), `setBlackout` and `setPanicDim`
+`sceneId`), `setSceneParameter` (`deck`, current `sceneId`, parameter `index`
+0–3, `amount` 0–1), `setCrossfader` (`value` 0–1), `setBlackout` and `setPanicDim`
 (`enabled`), `setEffect` (`deck`, `effectIndex` 0–3, `amount`), `setModulation`
 (`deck`, `slot` 0–63, `source`, `target`, `amount`, `smoothing`, `enabled`),
 `saveCue` and `recallCue` (`index` 0–31; recall optionally includes
@@ -27,19 +28,44 @@ enumeration numbers; see [audio switching](AUDIO_SWITCH.md). Source-switch
 acceptance is asynchronous: a successful queue request does not change the
 selected source until a new stream has actually started. A failed switch emits
 an `ErrorEvent` while retaining the prior source.
-`saveShow` (`name`, 1–64 safe filename characters) queues an atomic portable
+`setMasterEffect` (`index` 0–3, `amount` 0–1) controls Motion, Warp, Trails
+and Color in the renderer. All four default to zero and are stored in cues and
+show bundles. `saveShow` (`name`, 1–64 safe filename characters) queues an atomic portable
 bundle under `Documents\PrismForge\Shows`; `loadShow` loads a validated bundle
-by the same name. `setOverlay` and
-`setMasterEffect` update their state slots but their render effects are still
-under development. `reloadShaders` compiles all scene passes before swapping
+by the same name. `setOverlay` updates its state slot, but overlay rendering
+is still under development. `reloadShaders` compiles all scene passes before swapping
 the live set; a failure keeps the prior valid set and reports `ErrorEvent`.
+Scene-control commands must name the active scene on that deck. Commands
+throttled in the UI and arriving after a scene change are rejected rather than
+silently altering the new scene. `sceneCatalog[].parameters` describes the
+available controls; existing scenes expose none. Each deck saves four neutral-
+default `sceneParams` values in cues and show bundles. Older v1 bundles that
+omit `sceneParams` load with 0.5 for each value.
 
 `StateSnapshot` includes revision, A/B deck scene/effect/modulation state,
-crossfader, blackout, panic dim, scene catalog, audio sources/levels, cue
+crossfader, four `masterEffects` amounts, blackout, panic dim, scene catalog, audio sources/levels, cue
 presence, performance tier/fps, and fixed Spout output format. `SignalFrame`
-contains transient, spectrum, beat and performance values. Unsupported,
+contains transient, spectrum, beat and performance values. It also includes an
+additive developer-facing `musical` object with the interpreted energies/state
+weights, source sample index/rate/time, and the deterministic event ID. The
+event ID is a decimal string so JSON/JavaScript clients preserve all 64 bits;
+older v1 clients may ignore the entire object. This telemetry does not add UI
+controls or a new command path. Unsupported,
 malformed, or overlong input is rejected. This is a local UI protocol, not an
 authenticated LAN API.
+
+For a live audition, close Control (this alpha permits one pipe client) and run
+the packaged read-only monitor. It connects only to an already-running Engine,
+checks the pipe-server process identity, and never sends commands:
+
+```powershell
+.\tools\watch-musical-state.ps1 -SampleSeconds 30
+```
+
+`audio.connected` means the capture stream is open; `audio.receiving` means a
+fresh audio block has arrived within 250 ms. Neither alone means music is
+audible or an effect is visibly responding. A lost or stalled stream clears
+the analyzer so old spectral energy cannot remain pinned on the output.
 
 The schema is still v1 alpha: show files validate/restorable in v1, but
 migration from future schemas is not implemented. Do not use this IPC alone as

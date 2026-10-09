@@ -20,12 +20,18 @@ Windows' current default playback endpoint when a switch is requested.
 
 The default startup capture also happens asynchronously. Until its success
 event arrives, `audio.connected` is false even if the device list is already
-available. `--no-audio` still enumerates sources but never opens a stream
+available. `audio.receiving` separately reports fresh blocks within 250 ms;
+an open but silent/inactive loopback may remain connected without producing
+blocks. A disconnect or 250 ms delivery stall clears stale analyzer levels.
+When a capture resumes after a device interruption, the worker publishes one
+recovery switch event so the analyzer starts from the new stream clock.
+`--no-audio` still enumerates sources but never opens a stream
 unless an explicit switch is requested. Miniaudio stop/uninit and worker join
 are permitted to wait during Engine shutdown, after the render loop exits.
 
 The Release `prismforge_audio_tests` use fake captures only. They check stable
 ID encoding, candidate callback gating and drain, failed-switch retention,
-ordered handoff and bounded nonblocking request acceptance. These tests do not prove
+ordered handoff, disconnect/recovery event ordering and bounded nonblocking
+request acceptance. These tests do not prove
 FL Studio loopback, Maono signal quality, hot-unplug recovery, or venue latency;
 those require supervised rig validation.
