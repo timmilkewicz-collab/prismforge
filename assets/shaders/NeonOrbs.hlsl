@@ -5,7 +5,10 @@ cbuffer SceneInputs : register(b0) {
   float highs;
   float hit;
   float2 resolution;
-  float2 pad;
+  float4 reactive;
+  float4 sceneParams;
+  float4 musicalA;
+  float4 musicalB;
 };
 
 struct PSInput {
@@ -39,17 +42,27 @@ float4 main(PSInput input) : SV_TARGET {
   float mid = audioContour(mids, 0.004, 0.038);
   float treble = audioContour(highs, 0.003, 0.030);
   float accent = saturate(hit);
+  float4 controls = saturate(sceneParams);
+  float assist = musicalB.w;
+  float gravity = lerp(0.72, 1.45, saturate(controls.x + assist * 0.12 * (musicalA.z - 0.35)));
   float3 color = float3(0.0010, 0.0010, 0.0014);
 
   // A long orbit gives the performer something that feels suspended rather
   // than screen-saver random. Bass changes spacing, never frame exposure.
-  float2 hub = float2(0.055 + 0.055 * sin(time * 0.18) + 0.018 * low,
-                      0.012 + 0.037 * cos(time * 0.23));
-  float turn = time * 0.105;
+  float centerPres = pf_operator_center_pressure(controls);
+  float2 c0;
+  float2 c1;
+  float2 c2;
+  float2 c3;
+  pf_four_centers(time, centerPres, c0, c1, c2, c3);
+  float2 hub = lerp(float2(0.055 + 0.055 * sin(time * 0.18) + 0.018 * low,
+                           0.012 + 0.037 * cos(time * 0.23)), c0, centerPres);
+  hub += float2(-0.34, 0.18) * (controls.w - 0.5) * (1.0 - centerPres * 0.65);
+  float turn = time * 0.105 * lerp(0.45, 1.8, saturate(controls.y + assist * 0.1 * musicalA.y));
   float turnSin;
   float turnCos;
   sincos(turn, turnSin, turnCos);
-  float spread = 1.0 + 0.23 * low;
+  float spread = (1.0 + 0.23 * low) * lerp(1.2, 0.62, gravity) * lerp(0.75, 1.35, controls.z);
 
   [loop] for (int i = 0; i < ORB_COUNT; ++i) {
     float seed = (float)i + 1.0;
@@ -149,6 +162,8 @@ float4 main(PSInput input) : SV_TARGET {
              (0.35 + 0.65 * segment);
   }
 
+  color = pf_center_rim(color, p, time, centerPres, float3(1.0, 0.45, 0.05), float3(0.05, 0.75, 1.0));
+  color = pf_depth_structure(color, p, time, gravity, spread * 0.02);
   color = color / (0.83 + color);
   return float4(min(color, float3(0.88, 0.88, 0.88)), 1.0);
 }

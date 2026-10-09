@@ -11,6 +11,8 @@ cbuffer SceneInputs : register(b0) {
   float2 resolution;
   float2 pad;
   float4 sceneParams;
+  float4 musicalA;
+  float4 musicalB;
 };
 
 struct PSInput {
@@ -76,6 +78,8 @@ float4 main(PSInput input) : SV_TARGET {
   float treble = audioContour(highs, 0.003, 0.030);
   float accent = saturate(hit);
   float4 controls = saturate(sceneParams);
+  controls.x = saturate(controls.x + musicalB.w * 0.12 * (musicalA.z - 0.4));
+  controls.y = saturate(controls.y + musicalB.w * 0.1 * (musicalA.y - 0.35));
 
   // The shell mostly holds its pose; slower drift leaves room for the audio
   // to be the obvious source of panel and perspective movement.
@@ -254,6 +258,10 @@ float4 main(PSInput input) : SV_TARGET {
               (1.0 - smoothstep(opening + 0.010,
                                 opening + 0.058, radius));
   color += rim * float3(0.006, 0.015, 0.025);
+  float centerPres = pf_operator_center_pressure(controls);
+  color = pf_center_region_tint(color, p, time, centerPres);
+  color = pf_center_rim(color, p, time, centerPres, float3(0.05, 0.55, 0.85), float3(0.75, 0.25, 0.55));
+  color = pf_depth_structure(color, p, time, controls.x, controls.y * 0.35);
   color = color / (0.79 + color);
   return float4(min(color, float3(0.91, 0.91, 0.91)), 1.0);
 }

@@ -42,7 +42,8 @@ public static class ProtocolCodec
         "recallCue",
         "setAudioSource",
         "saveShow",
-        "loadShow"
+        "loadShow",
+        "shutdownApplication"
     };
 
     private static readonly JsonSerializerOptions SerializerOptions = new()
@@ -138,6 +139,7 @@ public static class ProtocolCodec
         switch (action)
         {
             case "requestSnapshot":
+            case "shutdownApplication":
                 return;
             case "setScene":
                 RequiredDeck(payload);

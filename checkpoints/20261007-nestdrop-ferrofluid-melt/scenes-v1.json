@@ -1,0 +1,214 @@
+{
+  "schema": "SceneManifestV1",
+  "version": 1,
+  "scenes": [
+    {
+      "id": "ink-tide",
+      "name": "Ink Tide",
+      "version": 1,
+      "shader": "assets/shaders/InkTide.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "prism-atrium",
+      "name": "Prism Atrium",
+      "version": 1,
+      "shader": "assets/shaders/PrismAtrium.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "chrome-flock",
+      "name": "Chrome Flock",
+      "version": 1,
+      "shader": "assets/shaders/ChromeFlock.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "signal-lab",
+      "name": "Signal Lab",
+      "version": 1,
+      "shader": "assets/shaders/SignalLab.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "neon-rift",
+      "name": "Neon Rift",
+      "version": 1,
+      "shader": "assets/shaders/NeonRift.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "media-alchemy",
+      "name": "Media Alchemy",
+      "version": 1,
+      "shader": "assets/shaders/MediaAlchemy.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "reaction-bloom",
+      "name": "Reaction Bloom",
+      "version": 1,
+      "shader": "assets/shaders/ReactionBloom.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "harmonic-sand",
+      "name": "Harmonic Sand",
+      "version": 1,
+      "shader": "assets/shaders/HarmonicSand.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "constellation",
+      "name": "Constellation",
+      "version": 1,
+      "shader": "assets/shaders/Constellation.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "fold-temple",
+      "name": "Fold Temple",
+      "version": 1,
+      "shader": "assets/shaders/FoldTemple.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "dream-grove",
+      "name": "Dream Grove",
+      "version": 1,
+      "shader": "assets/shaders/DreamGrove.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "living-point-cloud",
+      "name": "Living Point Cloud",
+      "version": 1,
+      "shader": "assets/shaders/LivingPointCloud.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "hex-vortex",
+      "name": "Hex Vortex",
+      "version": 1,
+      "shader": "assets/shaders/HexVortex.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "ferrofluid-reactor",
+      "name": "Ferrofluid Reactor",
+      "version": 1,
+      "shader": "assets/shaders/FerrofluidReactor.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "shardwell",
+      "name": "Shardwell",
+      "version": 1,
+      "shader": "assets/shaders/Shardwell.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "neon-orbs",
+      "name": "Neon Orbs",
+      "version": 1,
+      "shader": "assets/shaders/NeonOrbs.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [],
+      "capabilities": ["procedural", "audio-reactive"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "mirror-cathedral",
+      "name": "Mirror Cathedral",
+      "version": 1,
+      "shader": "assets/shaders/MirrorCathedral.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [
+        {"id": "symmetry", "name": "Symmetry", "type": "float", "index": 0, "min": 0, "max": 1, "default": 0.5},
+        {"id": "depth", "name": "Depth", "type": "float", "index": 1, "min": 0, "max": 1, "default": 0.5},
+        {"id": "aperture", "name": "Aperture", "type": "float", "index": 2, "min": 0, "max": 1, "default": 0.5},
+        {"id": "lineWidth", "name": "Line width", "type": "float", "index": 3, "min": 0, "max": 1, "default": 0.5}
+      ],
+      "capabilities": ["procedural", "audio-reactive", "live-parameters"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    },
+    {
+      "id": "recursive-circuit",
+      "name": "Recursive Circuit",
+      "version": 1,
+      "shader": "assets/shaders/RecursiveCircuit.hlsl",
+      "entry": "main",
+      "profile": "ps_5_0",
+      "parameters": [
+        {"id": "branching", "name": "Branching", "type": "float", "index": 0, "min": 0, "max": 1, "default": 0.5},
+        {"id": "flow", "name": "Flow", "type": "float", "index": 1, "min": 0, "max": 1, "default": 0.5},
+        {"id": "depth", "name": "Depth", "type": "float", "index": 2, "min": 0, "max": 1, "default": 0.5},
+        {"id": "charge", "name": "Charge", "type": "float", "index": 3, "min": 0, "max": 1, "default": 0.5}
+      ],
+      "capabilities": ["procedural", "audio-reactive", "live-parameters"],
+      "qualityTiers": ["normal", "degraded75", "degraded66", "safety"]
+    }
+  ]
+}

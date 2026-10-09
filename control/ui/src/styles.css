@@ -76,6 +76,27 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
   backdrop-filter: blur(22px) saturate(130%);
 }
 
+.quit-all-button {
+  margin-left: 6px;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 79, 104, 0.45);
+  border-radius: 999px;
+  background: linear-gradient(135deg, rgba(255, 79, 104, 0.18), rgba(150, 115, 255, 0.12));
+  color: #ffd8df;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.quit-all-button:hover {
+  border-color: rgba(255, 120, 140, 0.75);
+  background: linear-gradient(135deg, rgba(255, 79, 104, 0.32), rgba(150, 115, 255, 0.22));
+  transform: translateY(-1px);
+}
+
 .brand { display: flex; align-items: center; gap: 12px; }
 .brand-mark { display: flex; gap: 3px; align-items: end; width: 31px; height: 31px; padding: 5px; border: 1px solid var(--line-bright); border-radius: 8px; }
 .brand-mark i { display: block; width: 5px; border-radius: 4px; box-shadow: 0 0 12px currentColor; }
@@ -86,7 +107,7 @@ button:disabled, select:disabled, input:disabled { cursor: not-allowed; opacity:
 .brand span { display: block; margin-top: 2px; color: var(--muted); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; }
 .brand .alpha-badge { display: inline-flex; align-items: center; height: 22px; margin: 0 0 0 8px; padding: 0 7px; border: 1px solid rgba(255,191,69,.35); border-radius: 5px; color: var(--amber); background: rgba(67,47,14,.25); font-size: 7px; font-weight: 800; letter-spacing: .1em; }
 
-.topbar-metrics { display: flex; align-items: center; gap: 8px; }
+.topbar-metrics { display: flex; align-items: center; gap: 14px; }
 .metric, .connection-pill {
   height: 38px;
   padding: 6px 11px;

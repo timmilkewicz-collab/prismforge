@@ -183,6 +183,10 @@ bool ApplyCommand(const QueuedCommand& command, ShowState& show,
       throw std::invalid_argument("Deck must be A or B");
     };
     if (command.name == "requestSnapshot") return false;
+    if (command.name == "shutdownApplication") {
+      g_running = false;
+      return false;
+    }
     if (command.name == "setScene") {
       const auto sceneId = payload.at("sceneId").get<std::string>();
       if (!SceneAvailable(catalog, sceneId) || !show.SetScene(deckIndex(), sceneId)) {

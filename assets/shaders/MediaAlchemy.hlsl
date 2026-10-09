@@ -1,3 +1,7 @@
+#ifndef QUALITY_TIER
+#define QUALITY_TIER 0
+#endif
+
 cbuffer SceneInputs : register(b0) {
   float time;
   float bass;
@@ -5,7 +9,10 @@ cbuffer SceneInputs : register(b0) {
   float highs;
   float hit;
   float2 resolution;
-  float2 pad;
+  float4 reactive;
+  float4 sceneParams;
+  float4 musicalA;
+  float4 musicalB;
 };
 
 struct PSInput {
@@ -13,48 +20,42 @@ struct PSInput {
   float2 uv : TEXCOORD0;
 };
 
+float knee(float value) {
+  float signal = max(saturate(value) - 0.004, 0.0);
+  return signal / (signal + 0.04);
+}
+
 float4 main(PSInput input) : SV_TARGET {
-  float2 uv = input.uv;
-  float2 tile = floor(uv * 2.0);
-  float2 q = frac(uv * 2.0) - 0.5;
-  float panel = tile.x + tile.y * 2.0;
-  float3 color;
+  float aspect = resolution.x / max(resolution.y, 1.0);
+  float4 controls = saturate(sceneParams);
+  float assist = musicalB.w;
+  float rings = lerp(3.0, 9.0, saturate(controls.x + assist * 0.14 * musicalA.y));
+  float spin = lerp(0.15, 1.3, saturate(controls.y + assist * 0.16 * (musicalA.z - 0.3)));
+  float pigment = lerp(0.2, 1.0, controls.z);
+  float well = lerp(0.2, 1.2, saturate(controls.w - assist * 0.12 * musicalB.y));
+  float low = knee(bass);
+  float2 origin = float2(0.16 * sin(time * 0.12), 0.1 * cos(time * 0.1));
+  float2 p = (input.uv - 0.5) * float2(aspect, 1.0) - origin;
+  float radius = length(p);
+  float angle = atan2(p.y, p.x) + time * spin;
+  float3 color = float3(0.03, 0.012, 0.015);
 
-  // Four synthetic feeds form a collage even when no media input is attached.
-  if (panel < 0.5) {
-    float horizon = 0.08 * sin(q.x * 13.0 + time * 0.35) +
-        0.035 * sin(q.x * 31.0 - time * 0.5);
-    float land = smoothstep(horizon - 0.025, horizon + 0.025, q.y);
-    color = lerp(float3(0.03, 0.12, 0.18),
-                 float3(0.77, 0.29, 0.18), land);
-    color += 0.12 * (0.5 + 0.5 * sin(q.x * 19.0 + q.y * 14.0 + time));
-  } else if (panel < 1.5) {
-    float2 spun = q + 0.06 * float2(sin(time * 0.28), cos(time * 0.31));
-    float r = length(spun);
-    float ring = 1.0 - smoothstep(0.006, 0.025,
-        abs(frac(r * 8.0 - time * 0.18) - 0.5));
-    color = float3(0.025, 0.035, 0.13) +
-        ring * float3(0.17, 0.72, 0.83) * (0.5 + highs);
-  } else if (panel < 2.5) {
-    float strips = step(0.55, frac(q.y * 17.0 + time * 0.6));
-    float blocks = step(0.43, frac(q.x * 9.0 + floor(q.y * 17.0) * 0.31));
-    color = lerp(float3(0.05, 0.04, 0.14),
-                 float3(0.78, 0.51, 0.08), strips * blocks);
-    color += float3(0.08, 0.03, 0.11) * (0.5 + mids);
-  } else {
-    float folded = sin(q.x * 20.0 + 4.0 * sin(q.y * 8.0 + time * 0.5));
-    float veil = smoothstep(-0.35, 0.45, folded);
-    color = lerp(float3(0.02, 0.10, 0.07),
-                 float3(0.66, 0.17, 0.41), veil);
-    color += float3(0.04, 0.10, 0.06) * bass;
+  [loop] for (int i = 0; i < 8; ++i) {
+    if ((float)i >= rings) break;
+    float band = abs(radius - (0.08 + (float)i * 0.07) - 0.02 * sin(angle * (3.0 + (float)i) + time));
+    float ring = 1.0 - smoothstep(0.002, 0.01, band);
+    float glyph = pow(saturate(0.5 + 0.5 * sin(angle * (5.0 + (float)i) - radius * 10.0)), 12.0);
+    float3 gold = float3(0.85, 0.55, 0.08);
+    float3 violet = float3(0.42, 0.08, 0.55);
+    color += lerp(gold, violet, (float)i / 7.0) * ring * (0.35 + pigment);
+    color += gold * glyph * ring * 0.4;
   }
-
-  float border = 1.0 - smoothstep(0.47, 0.49, max(abs(q.x), abs(q.y)));
-  color *= border;
-  float scan = 0.95 + 0.05 * sin(uv.y * resolution.y * 0.7);
-  color *= scan;
-  float wipe = 1.0 - smoothstep(0.0, 0.014,
-      abs(uv.x - frac(time * 0.075)));
-  color += wipe * float3(0.09, 0.12, 0.14) * (0.3 + hit);
+  float bowl = exp(-radius * (3.0 + 4.0 * (1.0 - well)));
+  color += bowl * float3(0.35, 0.12, 0.05) * well;
+  color += saturate(hit + low) * bowl * float3(0.15, 0.05, 0.0);
+  float centerPres = pf_operator_center_pressure(controls);
+  color = pf_center_region_tint(color, p, time, centerPres);
+  color = pf_center_rim(color, p, time, centerPres, float3(0.85, 0.55, 0.08), float3(0.42, 0.08, 0.55));
+  color = pf_depth_structure(color, p, time, pigment, spin * 0.3);
   return float4(saturate(color), 1.0);
 }

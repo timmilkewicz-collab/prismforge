@@ -256,6 +256,10 @@ float4 main(PSInput input) : SV_TARGET {
   float rim = smoothstep(0.08, 0.13, distanceFromCenter) *
               (1.0 - smoothstep(0.18, 0.31, distanceFromCenter));
   color += rim * float3(0.010, 0.034, 0.050);
+  float centerPres = pf_operator_center_pressure(controls);
+  color = pf_center_region_tint(color, p, time, centerPres);
+  color = pf_center_rim(color, p, time, centerPres, float3(0.15, 0.85, 0.55), float3(0.35, 0.45, 1.0));
+  color = pf_depth_structure(color, p, time, density + 0.2, flow * 0.35);
   color = color / (0.68 + color);
   return float4(min(color, float3(0.94, 0.94, 0.94)), 1.0);
 }

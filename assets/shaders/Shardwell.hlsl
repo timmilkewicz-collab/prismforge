@@ -5,7 +5,10 @@ cbuffer SceneInputs : register(b0) {
   float highs;
   float hit;
   float2 resolution;
-  float2 pad;
+  float4 reactive;
+  float4 sceneParams;
+  float4 musicalA;
+  float4 musicalB;
 };
 
 struct PSInput {
@@ -117,6 +120,12 @@ float4 main(PSInput input) : SV_TARGET {
   float mid = audioContour(mids, 0.004, 0.038);
   float treble = audioContour(highs, 0.003, 0.030);
   float accent = saturate(hit);
+  float4 controls = saturate(sceneParams);
+  float assist = musicalB.w;
+  float stress = lerp(0.7, 1.45, saturate(controls.x + assist * 0.15 * (musicalA.z - 0.35)));
+  float orbitScale = lerp(0.4, 1.7, controls.y);
+  float shatter = lerp(0.72, 1.4, controls.z);
+  p -= float2(0.28 * sin(time * 0.11), 0.12 * cos(time * 0.09)) * (controls.w - 0.35 + assist * 0.1 * musicalB.y);
 
   // A dark, slightly off-center opening remains visible even during a bass
   // hit. Bass changes its width, while the camera drifts on a slower path.
@@ -130,29 +139,33 @@ float4 main(PSInput input) : SV_TARGET {
   float3 color = float3(0.0015, 0.0020, 0.0045);
   color += wellRim * float3(0.006, 0.019, 0.028);
 
-  float4 layer = debrisLayer(p, time, 20.0, 0.052, 1.0, 0.005, 0.55,
+  float4 layer = debrisLayer(p, time, 20.0 * shatter, 0.052 * orbitScale * stress, 1.0, 0.005, 0.55,
                              0.39, aperture, mid, treble, accent);
   color = color * (1.0 - layer.a) + layer.rgb;
 
 #if QUALITY_TIER <= 1
-  layer = debrisLayer(p, time, 12.0, -0.075, 2.0, 0.006, 0.88,
+  layer = debrisLayer(p, time, 12.0 * shatter, -0.075 * orbitScale, 2.0, 0.006, 0.88,
                       0.44, aperture + 0.020, mid, treble, accent);
   color = color * (1.0 - layer.a) + layer.rgb;
 #endif
 
-  layer = debrisLayer(p, time, 6.3, 0.099, 3.0, 0.009, 1.0,
+  layer = debrisLayer(p, time, 6.3 * shatter, 0.099 * orbitScale * stress, 3.0, 0.009, 1.0,
                       0.47, aperture + 0.046, mid, treble, accent);
   color = color * (1.0 - layer.a) + layer.rgb;
 
 #if QUALITY_TIER == 0
   // Deliberately large soft blocks float in front of the crisp swarm.
   // Removing this field is the first quality reduction under load.
-  layer = debrisLayer(p, time, 2.9, -0.122, 4.0, 0.032, 0.86,
+  layer = debrisLayer(p, time, 2.9 * shatter, -0.122 * orbitScale, 4.0, 0.032, 0.86,
                       0.61, aperture + 0.19, mid, treble, accent);
   color = color * (1.0 - layer.a) + layer.rgb;
 #endif
 
   // Compress isolated luminous facets without lifting the deep-black well.
+  float centerPres = pf_operator_center_pressure(controls);
+  color = pf_center_region_tint(color, p, time, centerPres);
+  color = pf_center_rim(color, p, time, centerPres, float3(0.35, 0.55, 0.75), float3(0.75, 0.35, 0.45));
+  color = pf_depth_structure(color, p, time, shatter, stress * 0.28);
   color = color / (0.76 + color);
   return float4(min(color, float3(0.92, 0.92, 0.92)), 1.0);
 }

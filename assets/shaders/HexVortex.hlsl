@@ -5,7 +5,10 @@ cbuffer SceneInputs : register(b0) {
   float highs;
   float hit;
   float2 resolution;
-  float2 pad;
+  float4 reactive;
+  float4 sceneParams;
+  float4 musicalA;
+  float4 musicalB;
 };
 
 struct PSInput {
@@ -18,8 +21,20 @@ struct PSInput {
 // details share one continuous timebase.
 float4 main(PSInput input) : SV_TARGET {
   const float tau = 6.28318530718;
+  float4 controls = saturate(sceneParams);
+  float assist = musicalB.w;
+  float centerPres = pf_operator_center_pressure(controls);
+  float symmetryOrder = lerp(4.0, 8.0, saturate(controls.x + assist * 0.16 * (musicalA.z - 0.4)));
+  float spin = lerp(0.55, 1.65, controls.y);
   float2 p = (input.uv - 0.5) *
              float2(resolution.x / max(resolution.y, 1.0), 1.0);
+  float2 c0;
+  float2 c1;
+  float2 c2;
+  float2 c3;
+  pf_four_centers(time, centerPres, c0, c1, c2, c3);
+  p -= float2(0.34 * sin(time * 0.17), 0.18 * cos(time * 0.13)) * controls.z;
+  p = lerp(p, pf_multi_center_field(p, time, centerPres, -1.2), centerPres * 0.72);
   float low = saturate(bass);
   float mid = saturate(mids);
   float high = saturate(highs);
@@ -31,7 +46,7 @@ float4 main(PSInput input) : SV_TARGET {
   float radius = max(length(p), 0.0001);
   float rawAngle = atan2(p.y, p.x);
   float logarithm = log2(radius + 0.038);
-  float whirl = time * 0.31 + logarithm * 0.40 +
+  float whirl = time * 0.31 * spin + logarithm * 0.40 +
                 (0.055 + 0.035 * low) *
                     sin(6.0 * rawAngle - time * 0.83 + 8.0 * radius);
   float sn;
@@ -59,7 +74,8 @@ float4 main(PSInput input) : SV_TARGET {
   // Every hex side contains offset machine facets, engraved diagonal ribs,
   // and small luminous diamonds. At the outer rim these become broad plates;
   // deeper in the tunnel the details collapse into a bright woven core.
-  float side = frac((angle + 3.14159265359) / tau * 6.0);
+  float side = frac((angle + 3.14159265359) / tau * symmetryOrder);
+  angle += (controls.w - 0.5) * 1.4 * sin(4.0 * logarithm + time * 0.2);
   float sideBoundary = min(side, 1.0 - side);
   float sideSeam = 1.0 - smoothstep(0.007, 0.035, sideBoundary);
   float panel = frac(side * 5.0 + lane * 0.371);
@@ -137,6 +153,12 @@ float4 main(PSInput input) : SV_TARGET {
   color += throat * (float3(0.055, 0.018, 0.11) +
                      coreSpiral * float3(0.12, 0.035, 0.15));
   color *= 0.40 + 0.60 * smoothstep(0.004, 0.055, hexRadius);
+  float localSym = 1.0 + centerPres * 0.35 *
+      sin(6.0 * atan2(p.y - c0.y, p.x - c0.x) + time * 0.4);
+  color *= localSym;
+  color = pf_center_region_tint(color, p, time, centerPres);
+  color = pf_center_rim(color, p, time, centerPres, pigment, complementary);
+  color = pf_depth_structure(color, p, time, controls.y, spin * 0.25);
   color = color / (0.70 + color);
   return float4(min(color, float3(0.92, 0.92, 0.92)), 1.0);
 }

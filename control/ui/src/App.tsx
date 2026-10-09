@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import { sendCommand, subscribeToHost } from './bridge'
+import { requestShutdownAll, sendCommand, subscribeToHost } from './bridge'
 import { initialViewState, viewReducer } from './state'
 import { emptyDeck } from './types'
 import type {
@@ -454,6 +454,10 @@ export default function App() {
           <div className={`metric spout ${online && view.engine.output.spout.ready ? 'ready' : ''}`}>
             <span>Spout</span><b>{online ? (view.engine.output.spout.ready ? 'Ready' : 'Offline') : 'Unknown'}</b>
           </div>
+          <button type="button" className="quit-all-button" onClick={() => requestShutdownAll()}
+            title="Stop the engine and close Control">
+            Quit all
+          </button>
         </div>
       </header>
 

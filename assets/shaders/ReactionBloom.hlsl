@@ -1,3 +1,7 @@
+#ifndef QUALITY_TIER
+#define QUALITY_TIER 0
+#endif
+
 cbuffer SceneInputs : register(b0) {
   float time;
   float bass;
@@ -5,7 +9,10 @@ cbuffer SceneInputs : register(b0) {
   float highs;
   float hit;
   float2 resolution;
-  float2 pad;
+  float4 reactive;
+  float4 sceneParams;
+  float4 musicalA;
+  float4 musicalB;
 };
 
 struct PSInput {
@@ -13,40 +20,54 @@ struct PSInput {
   float2 uv : TEXCOORD0;
 };
 
+float hash21(float2 p) {
+  return frac(sin(dot(p, float2(127.1, 311.7))) * 43758.5453);
+}
+
+float knee(float value) {
+  float signal = max(saturate(value) - 0.004, 0.0);
+  return signal / (signal + 0.04);
+}
+
 float4 main(PSInput input) : SV_TARGET {
   float aspect = resolution.x / max(resolution.y, 1.0);
+  float4 controls = saturate(sceneParams);
+  float assist = musicalB.w;
+  float feed = lerp(0.6, 1.8, saturate(controls.x + assist * 0.18 * (musicalA.z - 0.3)));
+  float scale = lerp(3.5, 9.0, controls.y);
+  float heat = lerp(0.2, 1.0, saturate(controls.z + assist * 0.2 * musicalB.x));
+  float membrane = lerp(0.3, 1.2, saturate(controls.w + assist * 0.1 * musicalB.y));
+  float low = knee(bass);
   float2 p = (input.uv - 0.5) * float2(aspect, 1.0);
-  float3 color = float3(0.020, 0.008, 0.036);
-  float atmosphere = 1.0 - smoothstep(0.04, 0.85, length(p));
-  color += atmosphere * float3(0.045, 0.013, 0.055);
+  float2 drift = float2(time * 0.05 * feed, time * 0.03);
+  float3 color = float3(0.02, 0.005, 0.015);
 
-  // Five slowly dividing radial colonies. All petals are analytic; no feedback
-  // texture or previous frame is required.
-  [unroll] for (int i = 0; i < 5; ++i) {
-    float seed = (float)i;
-    float2 center = float2(
-        0.43 * sin(seed * 2.399 + time * 0.15),
-        0.27 * cos(seed * 1.917 - time * 0.11));
-    float2 d = p - center;
-    float angle = atan2(d.y, d.x);
-    float radius = length(d);
-    float flowerRadius = 0.075 + 0.015 * sin(angle * 7.0 +
-        time * (0.4 + 0.05 * seed) + seed * 1.8);
-    flowerRadius *= 0.88 + 0.32 * bass;
-    float petal = 1.0 - smoothstep(flowerRadius - 0.012,
-                                  flowerRadius + 0.006, radius);
-    float membrane = 1.0 - smoothstep(0.004, 0.017,
-                                      abs(radius - flowerRadius));
-    float nucleus = 1.0 - smoothstep(0.006, 0.024, radius);
-    float halo = 0.006 / (0.006 + radius * radius * 38.0);
-    float3 pigment = lerp(float3(0.98, 0.24, 0.48),
-                          float3(0.20, 0.83, 0.67), frac(seed * 0.37));
-    color += pigment * (petal * 0.32 + membrane * 0.26 + halo * 0.055);
-    color += nucleus * float3(0.52, 0.36, 0.28) * (0.5 + hit);
+#if QUALITY_TIER >= 3
+  int cells = 5;
+#else
+  int cells = 8;
+#endif
+  [loop] for (int i = 0; i < cells; ++i) {
+    float2 seed = float2(hash21(float2(i, 2.0)), hash21(float2(i, 9.0))) - 0.5;
+    float2 center = seed * float2(1.3, 0.8) + 0.08 * float2(sin(time * 0.2 + i), cos(time * 0.17 + i));
+    float radius = (0.06 + 0.04 * hash21(float2(i, 4.0))) * (0.7 + 0.5 * low) * feed;
+    float dist = length((p - drift * 0.2) - center) * scale;
+    float body = exp(-pow(dist / max(radius * scale, 0.01), 2.0));
+    float wall = exp(-pow((dist - radius * scale) * (6.0 * membrane), 2.0));
+    float split = 0.5 + 0.5 * sin(time * 0.3 + i + musicalA.w * 6.28);
+    float3 hot = lerp(float3(0.15, 0.55, 0.25), float3(0.95, 0.28, 0.05), heat * split);
+    color += hot * body * 0.55;
+    color += float3(0.95, 0.85, 0.55) * wall * 0.35;
   }
-
-  float substrate = sin(p.x * 11.0 + time * 0.23) *
-                    sin(p.y * 15.0 - time * 0.17);
-  color += substrate * float3(0.010, 0.003, 0.014);
+  float centerPres = pf_operator_center_pressure(controls);
+  float2 c0;
+  float2 c1;
+  float2 c2;
+  float2 c3;
+  pf_four_centers(time, centerPres, c0, c1, c2, c3);
+  color += exp(-length(p - c0) * 10.0) * float3(0.2, 0.85, 0.35) * centerPres * feed;
+  color += exp(-length(p - c2) * 9.0) * float3(0.95, 0.35, 0.08) * centerPres;
+  color = pf_center_rim(color, p, time, centerPres, float3(0.2, 0.75, 0.35), float3(0.95, 0.45, 0.1));
+  color = pf_depth_structure(color, p, time, scale, heat * 0.35);
   return float4(saturate(color), 1.0);
 }

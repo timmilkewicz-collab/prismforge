@@ -5,7 +5,10 @@ cbuffer SceneInputs : register(b0) {
   float highs;
   float hit;
   float2 resolution;
-  float2 pad;
+  float4 reactive;
+  float4 sceneParams;
+  float4 musicalA;
+  float4 musicalB;
 };
 
 struct PSInput {
@@ -102,6 +105,33 @@ float4 main(PSInput input) : SV_TARGET {
            (0.70 + 0.22 * accent);
   color += depthRib * throatRim * float3(0.28, 0.08, 0.16) * 0.35;
 
+  float4 controls = saturate(sceneParams);
+  float assist = musicalB.w;
+  float pull = lerp(0.15, 1.5, saturate(controls.x + assist * 0.14 * (musicalA.z - 0.35)));
+  float viscosity = lerp(0.45, 1.6, controls.y);
+  float centers = lerp(1.0, 3.0, saturate(controls.z + assist * 0.1 * musicalA.y));
+  float crystal = saturate(controls.w - 0.15 * assist * musicalB.y);
+  float centerPres = pf_operator_center_pressure(controls);
+  float2 c0;
+  float2 c1;
+  float2 c2;
+  float2 c3;
+  pf_four_centers(time, saturate(centers / 3.0 + centerPres * 0.5), c0, c1, c2, c3);
+  float2 magnetA = lerp(float2(-0.34 + 0.06 * sin(time * 0.19), 0.1 * cos(time * 0.15)), c0, centerPres);
+  float2 magnetB = lerp(float2(0.30, -0.16 + 0.05 * sin(time * 0.13)), c1, centerPres);
+  float2 magnetC = lerp(float2(0.02 * cos(time * 0.11), 0.28), c2, centerPres);
+  float2 magnetD = c3;
+  float field = exp(-length(p - magnetA) * (4.0 + 8.0 * viscosity));
+  if (centers > 1.2) field += exp(-length(p - magnetB) * (5.0 + 7.0 * viscosity));
+  if (centers > 2.2) field += exp(-length(p - magnetC) * (6.0 + 6.0 * viscosity));
+  field += exp(-length(p - magnetD) * (5.5 + 5.5 * viscosity)) * centerPres;
+  color += field * float3(0.04, 0.20, 0.26) * pull;
+  float lattice = pow(saturate(0.5 + 0.5 * sin(length(p - magnetA) * 48.0)), 16.0);
+  color += lattice * field * float3(0.55, 0.62, 0.7) * crystal;
+
+  color = pf_center_region_tint(color, p, time, centerPres);
+  color = pf_center_rim(color, p, time, centerPres, float3(0.05, 0.35, 0.42), float3(0.42, 0.12, 0.28));
+  color = pf_depth_structure(color, p, time, viscosity, pull * 0.22);
   color = color / (0.79 + color);
   return float4(min(color, float3(0.91, 0.91, 0.91)), 1.0);
 }
